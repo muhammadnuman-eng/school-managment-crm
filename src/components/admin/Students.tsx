@@ -5,6 +5,7 @@ import { Input } from '../ui/input';
 import { Card } from '../ui/card';
 import { Avatar, AvatarFallback } from '../ui/avatar';
 import { Badge } from '../ui/badge';
+import { Switch } from '../ui/switch';
 import { toast } from 'sonner';
 import {
   Table,
@@ -426,9 +427,29 @@ export function Students() {
                     </div>
                   </TableCell>
                   <TableCell>
-                    <Badge variant={student.status === 'Active' ? 'default' : 'secondary'} className={student.status === 'Active' ? 'bg-green-100 text-green-700' : ''}>
-                      {student.status}
-                    </Badge>
+                    <Switch
+                      checked={student.status === 'Active'}
+                      onCheckedChange={(checked) => {
+                        const newStatus = checked ? 'Active' : 'Inactive';
+                        setStudents(students.map(s => 
+                          s.id === student.id ? { ...s, status: newStatus } : s
+                        ));
+                        toast.success(
+                          <div className="flex items-start gap-3 w-full">
+                            <CheckCircle2 className="w-5 h-5 text-green-600 dark:text-green-400 flex-shrink-0 mt-0.5" />
+                            <div className="flex flex-col gap-1 flex-1 min-w-0">
+                              <span className="font-semibold text-sm text-gray-900 dark:text-white leading-tight">Status updated</span>
+                              <span className="text-xs text-gray-600 dark:text-gray-400 leading-tight">{student.name} is now {newStatus.toLowerCase()}.</span>
+                            </div>
+                          </div>,
+                          {
+                            duration: 2000,
+                            icon: null,
+                          }
+                        );
+                      }}
+                      className="data-[state=checked]:bg-green-500 dark:data-[state=checked]:bg-green-600"
+                    />
                   </TableCell>
                   <TableCell className="text-right">
                     <DropdownMenu>
