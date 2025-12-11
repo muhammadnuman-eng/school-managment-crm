@@ -39,6 +39,10 @@ export function AuthSystem({ onLoginSuccess }: AuthSystemProps) {
   const [selectedRole, setSelectedRole] = useState<UserRole | null>(null);
   const [userEmail, setUserEmail] = useState('');
   const [selectedSchool, setSelectedSchool] = useState<string | null>(null);
+  const [tempToken, setTempToken] = useState<string | undefined>(undefined);
+  const [sessionId, setSessionId] = useState<string | undefined>(undefined);
+  const [userId, setUserId] = useState<string | undefined>(undefined);
+  const [isFirstLogin, setIsFirstLogin] = useState(false);
 
   const handlePortalSelect = (role: UserRole) => {
     setSelectedRole(role);
@@ -63,6 +67,14 @@ export function AuthSystem({ onLoginSuccess }: AuthSystemProps) {
   const handleBackToPortal = () => {
     setCurrentScreen('portal-selection');
     setSelectedRole(null);
+    setTempToken(undefined);
+    setSessionId(undefined);
+    setUserId(undefined);
+    setIsFirstLogin(false);
+    // Clear session storage
+    sessionStorage.removeItem('auth_session_id');
+    sessionStorage.removeItem('auth_user_id');
+    sessionStorage.removeItem('auth_temp_token');
   };
 
   const handleForgotPassword = (email: string) => {
@@ -70,8 +82,30 @@ export function AuthSystem({ onLoginSuccess }: AuthSystemProps) {
     setCurrentScreen('forgot-password');
   };
 
-  const handleLoginAttempt = (email: string, password: string, needs2FA: boolean) => {
+  const handleLoginAttempt = (
+    email: string, 
+    password: string, 
+    needs2FA: boolean, 
+    token?: string,
+    firstLogin?: boolean,
+    loginSessionId?: string,
+    loginUserId?: string
+  ) => {
     setUserEmail(email);
+    setTempToken(token);
+    setSessionId(loginSessionId);
+    setUserId(loginUserId);
+    setIsFirstLogin(firstLogin || false);
+    
+    // Store sessionId and userId in sessionStorage for persistence
+    // This ensures they're available even if component re-renders
+    if (loginSessionId) {
+      sessionStorage.setItem('auth_session_id', loginSessionId);
+    }
+    if (loginUserId) {
+      sessionStorage.setItem('auth_user_id', loginUserId);
+    }
+    
     if (needs2FA) {
       setCurrentScreen('2fa');
     } else {
@@ -80,6 +114,15 @@ export function AuthSystem({ onLoginSuccess }: AuthSystemProps) {
   };
 
   const handle2FAVerified = () => {
+    // Clear all auth-related state after successful verification
+    setTempToken(undefined);
+    setSessionId(undefined);
+    setUserId(undefined);
+    setIsFirstLogin(false);
+    // Clear session storage
+    sessionStorage.removeItem('auth_session_id');
+    sessionStorage.removeItem('auth_user_id');
+    sessionStorage.removeItem('auth_temp_token');
     setCurrentScreen('login-success');
   };
 
@@ -153,8 +196,21 @@ export function AuthSystem({ onLoginSuccess }: AuthSystemProps) {
         return (
           <TwoFactorAuth
             email={userEmail}
+            tempToken={tempToken}
+            sessionId={sessionId}
+            userId={userId}
             onVerified={handle2FAVerified}
-            onBack={() => setCurrentScreen(selectedRole === 'admin' ? 'admin-login' : selectedRole === 'teacher' ? 'teacher-login' : 'student-login')}
+            onBack={() => {
+              setTempToken(undefined);
+              setSessionId(undefined);
+              setUserId(undefined);
+              setIsFirstLogin(false);
+              // Clear session storage
+              sessionStorage.removeItem('auth_session_id');
+              sessionStorage.removeItem('auth_user_id');
+              sessionStorage.removeItem('auth_temp_token');
+              setCurrentScreen(selectedRole === 'admin' ? 'admin-login' : selectedRole === 'teacher' ? 'teacher-login' : 'student-login');
+            }}
           />
         );
       

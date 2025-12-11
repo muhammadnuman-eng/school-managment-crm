@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Plus, Search, Filter, BookOpen, Users, GraduationCap, MoreVertical, Edit, Trash2, Eye, Settings } from 'lucide-react';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
@@ -43,6 +43,9 @@ import { Checkbox } from '../ui/checkbox';
 import { ScrollArea } from '../ui/scroll-area';
 import { Separator } from '../ui/separator';
 import { toast } from 'sonner';
+import { adminService } from '../../services';
+import { AddClassRequest, UpdateClassRequest } from '../../types/class.types';
+import { ApiException, getUserFriendlyError } from '../../utils/errors';
 
 interface Subject {
   id: string;
@@ -161,8 +164,54 @@ const allSubjects = [
   { id: 'sub12', name: 'Physical Education', code: 'PE' },
 ];
 
+type ApiSection = any;
+type ApiSubject = any;
+type ApiClass = any;
+
+function normalizeSection(section: ApiSection): Section {
+  return {
+    id: section?.id || section?.uuid || crypto.randomUUID?.() || `${Date.now()}`,
+    name: typeof section?.name === 'string' ? section.name : String(section?.name?.name || section?.name || ''),
+    capacity: Number(section?.capacity) || 0,
+    enrolled: Number(section?.enrolled) || 0,
+    room: section?.room || '',
+    classTeacher: typeof section?.classTeacher === 'string' ? section.classTeacher : section?.classTeacher?.name,
+    classTeacherId: section?.classTeacherId,
+  };
+}
+
+function normalizeSubject(subject: ApiSubject): Subject {
+  return {
+    id: subject?.id || subject?.uuid || crypto.randomUUID?.() || `${Date.now()}`,
+    name: typeof subject?.name === 'string' ? subject.name : String(subject?.name?.name || subject?.name || ''),
+    code: subject?.code || '',
+    teacher: typeof subject?.teacher === 'string' ? subject.teacher : subject?.teacher?.name || '',
+    teacherId: subject?.teacherId,
+  };
+}
+
+function normalizeClass(cls: ApiClass): ClassData {
+  const sections = Array.isArray(cls?.sections) ? cls.sections.map(normalizeSection) : [];
+  const subjects = Array.isArray(cls?.subjects) ? cls.subjects.map(normalizeSubject) : [];
+
+  const totalCapacity = Number(cls?.totalCapacity) ||
+    (sections.length ? sections.reduce((sum, s) => sum + (Number(s.capacity) || 0), 0) : 0);
+
+  return {
+    id: cls?.id || cls?.uuid || `${Date.now()}`,
+    name: typeof cls?.name === 'string' ? cls.name : String(cls?.name?.name || cls?.name || ''),
+    grade: Number(cls?.grade) || 0,
+    academicYear: typeof cls?.academicYear === 'string' ? cls.academicYear : String(cls?.academicYear || ''),
+    sections,
+    subjects,
+    totalStudents: Number(cls?.totalStudents) || 0,
+    totalCapacity,
+  };
+}
+
 export function Classes() {
-  const [classes, setClasses] = useState<ClassData[]>(mockClasses);
+  const [classes, setClasses] = useState<ClassData[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
   const [showAddDialog, setShowAddDialog] = useState(false);
   const [showDetailDialog, setShowDetailDialog] = useState(false);
   const [selectedClass, setSelectedClass] = useState<ClassData | null>(null);
@@ -171,14 +220,41 @@ export function Classes() {
   const [editingClassId, setEditingClassId] = useState<string | null>(null);
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [classToDelete, setClassToDelete] = useState<ClassData | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
 
   // Form states
   const [className, setClassName] = useState('');
   const [gradeLevel, setGradeLevel] = useState('');
+  const [academicYear, setAcademicYear] = useState('2024-2025');
   const [sections, setSections] = useState<Section[]>([
     { id: '1', name: 'A', capacity: 40, enrolled: 0, room: '' }
   ]);
   const [selectedSubjects, setSelectedSubjects] = useState<string[]>([]);
+
+  // Fetch classes on mount
+  useEffect(() => {
+    fetchClasses();
+  }, []);
+
+  const fetchClasses = async () => {
+    setIsLoading(true);
+    try {
+      const response = await adminService.getClasses();
+
+      const classesData: ClassData[] = Array.isArray(response?.classes)
+        ? response.classes.map(normalizeClass)
+        : [];
+
+      setClasses(classesData);
+    } catch (error: any) {
+      console.error('Error fetching classes:', error);
+      toast.error('Failed to load classes. Please try again.');
+      setClasses([]);
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
   const totalClasses = classes.length;
   const totalSections = classes.reduce((sum, cls) => sum + cls.sections.length, 0);
@@ -204,9 +280,25 @@ export function Classes() {
     setSections(sections.map(s => s.id === id ? { ...s, [field]: value } : s));
   };
 
-  const handleViewDetails = (classData: ClassData) => {
-    setSelectedClass(classData);
-    setShowDetailDialog(true);
+  const handleViewDetails = async (classData: ClassData) => {
+    try {
+      const response = await adminService.getClassById(classData.id);
+
+      if (response.data) {
+        const classDetails = normalizeClass(response.data);
+
+        setSelectedClass(classDetails);
+        setShowDetailDialog(true);
+      } else {
+        setSelectedClass(normalizeClass(classData));
+        setShowDetailDialog(true);
+      }
+    } catch (error: any) {
+      console.error('Error fetching class details:', error);
+      toast.error('Failed to load class details. Showing cached data.');
+      setSelectedClass(classData);
+      setShowDetailDialog(true);
+    }
   };
 
   const handleSubjectToggle = (subjectId: string) => {
@@ -217,15 +309,47 @@ export function Classes() {
     );
   };
 
-  const handleEditClass = (classData: ClassData) => {
-    setEditingClassId(classData.id);
-    setIsEditMode(true);
-    setClassName(classData.name);
-    setGradeLevel(classData.grade.toString());
-    setSections(classData.sections.map(s => ({ ...s })));
-    setSelectedSubjects(classData.subjects.map(s => s.id));
-    setActiveTab('overview');
-    setShowAddDialog(true);
+  const handleEditClass = async (classData: ClassData) => {
+    try {
+      const response = await adminService.getClassById(classData.id);
+
+      if (response.data) {
+        const classDetails = normalizeClass(response.data);
+
+        setEditingClassId(classDetails.id);
+        setIsEditMode(true);
+        setClassName(classDetails.name);
+        setGradeLevel(classDetails.grade.toString());
+        setAcademicYear(classDetails.academicYear);
+        setSections(classDetails.sections.map(s => ({ ...s })));
+        setSelectedSubjects(classDetails.subjects.map(s => s.id));
+        setActiveTab('overview');
+        setShowAddDialog(true);
+      } else {
+        const normalized = normalizeClass(classData);
+        setEditingClassId(normalized.id);
+        setIsEditMode(true);
+        setClassName(normalized.name);
+        setGradeLevel(normalized.grade.toString());
+        setAcademicYear(normalized.academicYear);
+        setSections(normalized.sections.map(s => ({ ...s })));
+        setSelectedSubjects(normalized.subjects.map(s => s.id));
+        setActiveTab('overview');
+        setShowAddDialog(true);
+      }
+    } catch (error: any) {
+      console.error('Error fetching class for edit:', error);
+      toast.error('Failed to load class data. Using cached data.');
+      setEditingClassId(classData.id);
+      setIsEditMode(true);
+      setClassName(classData.name);
+      setGradeLevel(classData.grade.toString());
+      setAcademicYear(classData.academicYear);
+      setSections(classData.sections.map(s => ({ ...s })));
+      setSelectedSubjects(classData.subjects.map(s => s.id));
+      setActiveTab('overview');
+      setShowAddDialog(true);
+    }
   };
 
   const handleDeleteClass = (classData: ClassData) => {
@@ -233,83 +357,219 @@ export function Classes() {
     setShowDeleteDialog(true);
   };
 
-  const confirmDelete = () => {
-    if (classToDelete) {
+  const confirmDelete = async () => {
+    if (!classToDelete) return;
+
+    setIsDeleting(true);
+    try {
+      await adminService.deleteClass(classToDelete.id);
+
       setClasses(classes.filter(c => c.id !== classToDelete.id));
       toast.success(`Class "${classToDelete.name}" deleted successfully`);
       setShowDeleteDialog(false);
       setClassToDelete(null);
+    } catch (error: any) {
+      let errorMessage = 'Failed to delete class. Please try again.';
+
+      if (error instanceof ApiException) {
+        errorMessage = getUserFriendlyError(error);
+      } else if (error?.response?.data?.message) {
+        errorMessage = error.response.data.message;
+      } else if (error?.message) {
+        errorMessage = error.message;
+      }
+
+      toast.error(errorMessage);
+      console.error('Delete class error:', error);
+    } finally {
+      setIsDeleting(false);
     }
   };
 
-  const handleSubmitClass = () => {
-    if (isEditMode && editingClassId) {
-      // Update existing class
-      const updatedClass: ClassData = {
-        id: editingClassId,
-        name: className,
-        grade: parseInt(gradeLevel),
-        academicYear: classes.find(c => c.id === editingClassId)?.academicYear || '2024-2025',
-        sections: sections,
-        subjects: allSubjects
-          .filter(sub => selectedSubjects.includes(sub.id))
-          .map(sub => {
-            // Preserve existing teacher assignments if available
-            const existingClass = classes.find(c => c.id === editingClassId);
-            const existingSubject = existingClass?.subjects.find(s => s.id === sub.id);
-            return {
-              ...sub,
-              teacher: existingSubject?.teacher || '',
-              teacherId: existingSubject?.teacherId,
-            };
-          }),
-        totalStudents: sections.reduce((sum, s) => sum + s.enrolled, 0),
-        totalCapacity: sections.reduce((sum, s) => sum + s.capacity, 0),
-      };
-
-      setClasses(classes.map(c => c.id === editingClassId ? updatedClass : c));
-      toast.success(`Class "${className}" updated successfully`);
-    } else {
-      // Add new class
-      const newClass: ClassData = {
-        id: `${Date.now()}`, // Use timestamp for unique ID
-        name: className,
-        grade: parseInt(gradeLevel),
-        academicYear: '2024-2025',
-        sections: sections,
-        subjects: allSubjects
-          .filter(sub => selectedSubjects.includes(sub.id))
-          .map(sub => ({ ...sub, teacher: '' })),
-        totalStudents: sections.reduce((sum, s) => sum + s.enrolled, 0),
-        totalCapacity: sections.reduce((sum, s) => sum + s.capacity, 0),
-      };
-
-      setClasses([...classes, newClass]);
-      toast.success(`Class "${className}" created successfully`);
-    }
-
-    setShowAddDialog(false);
-    setIsEditMode(false);
-    setEditingClassId(null);
-
-    // Reset form
+  const handleResetForm = () => {
     setClassName('');
     setGradeLevel('');
+    setAcademicYear('2024-2025');
     setSections([{ id: '1', name: 'A', capacity: 40, enrolled: 0, room: '' }]);
     setSelectedSubjects([]);
     setActiveTab('overview');
+  };
+
+  const handleSubmitClass = async () => {
+    // Validate required fields
+    if (!className || className.trim() === '') {
+      toast.error('Class name is required');
+      return;
+    }
+
+    if (!gradeLevel || gradeLevel.trim() === '') {
+      toast.error('Grade level is required');
+      return;
+    }
+
+    if (!sections || sections.length === 0) {
+      toast.error('At least one section is required');
+      return;
+    }
+
+    // Validate sections
+    for (const section of sections) {
+      if (!section.name || section.name.trim() === '') {
+        toast.error('All sections must have a name');
+        return;
+      }
+      if (!section.capacity || section.capacity <= 0) {
+        toast.error('All sections must have a valid capacity');
+        return;
+      }
+    }
+
+    if (isEditMode && editingClassId) {
+      // Update existing class - Call API
+      setIsSubmitting(true);
+      try {
+        const requestData: UpdateClassRequest = {
+          name: className.trim(),
+          grade: parseInt(gradeLevel),
+          academicYear: academicYear,
+          sections: sections.map(section => ({
+            name: section.name.trim(),
+            capacity: section.capacity,
+            room: section.room?.trim() || undefined,
+            classTeacherId: section.classTeacherId || undefined,
+          })),
+          subjectIds: selectedSubjects.length > 0 ? selectedSubjects : undefined,
+        };
+
+        if (import.meta.env.DEV) {
+          console.log('Update Class Request:', {
+            classId: editingClassId,
+            requestData,
+          });
+        }
+
+        const response = await adminService.updateClass(editingClassId, requestData);
+
+        if (response.data) {
+        const updatedClass: ClassData = normalizeClass(response.data);
+
+          setClasses(classes.map(c => c.id === editingClassId ? updatedClass : c));
+          toast.success(`Class "${className}" updated successfully`);
+
+          setShowAddDialog(false);
+          setIsEditMode(false);
+          setEditingClassId(null);
+          handleResetForm();
+        } else {
+          throw new Error('Invalid response from server');
+        }
+      } catch (error: any) {
+        let errorMessage = 'Failed to update class. Please try again.';
+
+        if (error instanceof ApiException) {
+          errorMessage = getUserFriendlyError(error);
+        } else if (error?.response?.data?.message) {
+          errorMessage = error.response.data.message;
+        } else if (error?.response?.data?.error) {
+          errorMessage = error.response.data.error;
+        } else if (Array.isArray(error?.response?.data?.errors)) {
+          errorMessage = error.response.data.errors.join(', ');
+        } else if (error?.message) {
+          errorMessage = error.message;
+        }
+
+        if (import.meta.env.DEV) {
+          console.error('Update class error:', {
+            error,
+            message: errorMessage,
+            response: error?.response,
+            data: error?.response?.data,
+          });
+        }
+
+        toast.error(errorMessage);
+      } finally {
+        setIsSubmitting(false);
+      }
+      return;
+    }
+
+    // Add new class - Call API
+    setIsSubmitting(true);
+    try {
+      // Prepare request data
+      const requestData: AddClassRequest = {
+        name: className.trim(),
+        grade: parseInt(gradeLevel),
+        academicYear: academicYear,
+        sections: sections.map(section => ({
+          name: section.name.trim(),
+          capacity: section.capacity,
+          room: section.room?.trim() || undefined,
+          classTeacherId: section.classTeacherId || undefined,
+        })),
+        subjectIds: selectedSubjects.length > 0 ? selectedSubjects : undefined,
+      };
+
+      if (import.meta.env.DEV) {
+        console.log('Add Class Request:', requestData);
+      }
+
+      // Call API
+      const response = await adminService.addClass(requestData);
+
+      if (response.data) {
+        // Convert API response to ClassData format
+        const newClass: ClassData = normalizeClass(response.data);
+
+        setClasses([...classes, newClass]);
+        toast.success(`Class "${className}" created successfully`);
+
+        setShowAddDialog(false);
+        handleResetForm();
+
+        // Refresh classes list
+        await fetchClasses();
+      } else {
+        throw new Error('Invalid response from server');
+      }
+    } catch (error: any) {
+      let errorMessage = 'Failed to create class. Please try again.';
+
+      if (error instanceof ApiException) {
+        errorMessage = getUserFriendlyError(error);
+      } else if (error?.response?.data?.message) {
+        errorMessage = error.response.data.message;
+      } else if (error?.response?.data?.error) {
+        errorMessage = error.response.data.error;
+      } else if (Array.isArray(error?.response?.data?.errors)) {
+        errorMessage = error.response.data.errors.join(', ');
+      } else if (error?.message) {
+        errorMessage = error.message;
+      } else if (typeof error === 'string') {
+        errorMessage = error;
+      }
+
+      if (import.meta.env.DEV) {
+        console.error('Add class error:', {
+          error,
+          message: errorMessage,
+          response: error?.response,
+          data: error?.response?.data,
+        });
+      }
+
+      toast.error(errorMessage);
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   const handleCloseDialog = () => {
     setShowAddDialog(false);
     setIsEditMode(false);
     setEditingClassId(null);
-    // Reset form
-    setClassName('');
-    setGradeLevel('');
-    setSections([{ id: '1', name: 'A', capacity: 40, enrolled: 0, room: '' }]);
-    setSelectedSubjects([]);
-    setActiveTab('overview');
+    handleResetForm();
   };
 
   return (
@@ -393,100 +653,118 @@ export function Classes() {
           </Button>
         </div>
 
-        <div className="border rounded-lg overflow-hidden">
-          <Table>
-            <TableHeader>
-              <TableRow className="bg-gray-50 dark:bg-gray-800">
-                <TableHead>Class</TableHead>
-                <TableHead>Sections</TableHead>
-                <TableHead>Students</TableHead>
-                <TableHead>Capacity</TableHead>
-                <TableHead>Subjects</TableHead>
-                <TableHead>Occupancy</TableHead>
-                <TableHead className="text-right">Actions</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {classes.map((classData) => {
-                const occupancy = (classData.totalStudents / classData.totalCapacity) * 100;
-                return (
-                  <TableRow key={classData.id} className="hover:bg-gray-50 dark:hover:bg-gray-800">
-                    <TableCell>
-                      <div>
-                        <p className="text-sm text-gray-900 dark:text-white">{classData.name}</p>
-                        <p className="text-xs text-gray-500 dark:text-gray-400">
-                          Academic Year: {classData.academicYear}
-                        </p>
-                      </div>
-                    </TableCell>
-                    <TableCell>
-                      <div className="flex gap-1 flex-wrap">
-                        {classData.sections.map(section => (
-                          <Badge key={section.id} variant="outline" className="text-xs">
-                            {section.name}
-                          </Badge>
-                        ))}
-                      </div>
-                    </TableCell>
-                    <TableCell className="text-gray-900 dark:text-white">
-                      {classData.totalStudents}
-                    </TableCell>
-                    <TableCell className="text-gray-700 dark:text-gray-300">
-                      {classData.totalCapacity}
-                    </TableCell>
-                    <TableCell className="text-gray-700 dark:text-gray-300">
-                      {classData.subjects.length} subjects
-                    </TableCell>
-                    <TableCell>
-                      <div className="flex items-center gap-2">
-                        <div className="flex-1 h-2 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden max-w-[80px]">
-                          <div
-                            className={`h-full ${occupancy > 90 ? 'bg-red-500' :
-                                occupancy > 75 ? 'bg-orange-500' :
-                                  'bg-green-500'
-                              }`}
-                            style={{ width: `${occupancy}%` }}
-                          ></div>
-                        </div>
-                        <span className="text-sm text-gray-700 dark:text-gray-300">
-                          {occupancy.toFixed(0)}%
-                        </span>
-                      </div>
-                    </TableCell>
-                    <TableCell className="text-right">
-                      <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                          <Button variant="ghost" size="icon">
-                            <MoreVertical className="w-4 h-4" />
-                          </Button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end">
-                          <DropdownMenuItem onClick={() => handleViewDetails(classData)}>
-                            <Eye className="w-4 h-4 mr-2" />
-                            View Details
-                          </DropdownMenuItem>
-                          <DropdownMenuItem onClick={() => handleEditClass(classData)}>
-                            <Edit className="w-4 h-4 mr-2" />
-                            Edit
-                          </DropdownMenuItem>
-                          <DropdownMenuItem 
-                            className="text-red-600"
-                            onClick={() => handleDeleteClass(classData)}
-                          >
-                            <Trash2 className="w-4 h-4 mr-2" />
-                            Delete
-                          </DropdownMenuItem>
-                        </DropdownMenuContent>
-                      </DropdownMenu>
-                    </TableCell>
+        {isLoading ? (
+          <div className="flex items-center justify-center py-12">
+            <p className="text-gray-600 dark:text-gray-400">Loading classes...</p>
+          </div>
+        ) : classes.length === 0 ? (
+          <div className="flex items-center justify-center py-12">
+            <p className="text-gray-600 dark:text-gray-400">No classes found. Click "Add Class" to create one.</p>
+          </div>
+        ) : (
+          <>
+            <div className="border rounded-lg overflow-hidden">
+              <Table>
+                <TableHeader>
+                  <TableRow className="bg-gray-50 dark:bg-gray-800">
+                    <TableHead>Class</TableHead>
+                    <TableHead>Sections</TableHead>
+                    <TableHead>Students</TableHead>
+                    <TableHead>Capacity</TableHead>
+                    <TableHead>Subjects</TableHead>
+                    <TableHead>Occupancy</TableHead>
+                    <TableHead className="text-right">Actions</TableHead>
                   </TableRow>
-                );
-              })}
-            </TableBody>
-          </Table>
-        </div>
+                </TableHeader>
+                <TableBody>
+                  {classes.map((classData) => {
+                    const capacity = Number(classData.totalCapacity) || 0;
+                    const students = Number(classData.totalStudents) || 0;
+                    const occupancy = capacity > 0 ? (students / capacity) * 100 : 0;
+                    const occupancyClass = occupancy > 90
+                      ? 'bg-red-500'
+                      : occupancy > 75
+                        ? 'bg-orange-500'
+                        : 'bg-green-500';
+                    const occupancyBarClasses = ['h-full', occupancyClass].join(' ');
+                    return (
+                      <TableRow key={classData.id} className="hover:bg-gray-50 dark:hover:bg-gray-800">
+                        <TableCell>
+                          <div>
+                            <p className="text-sm text-gray-900 dark:text-white">{classData.name || 'Untitled'}</p>
+                            <p className="text-xs text-gray-500 dark:text-gray-400">
+                              Academic Year: {classData.academicYear}
+                            </p>
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          <div className="flex gap-1 flex-wrap">
+                            {classData.sections.map(section => (
+                              <Badge key={section.id} variant="outline" className="text-xs">
+                                {section.name}
+                              </Badge>
+                            ))}
+                          </div>
+                        </TableCell>
+                        <TableCell className="text-gray-900 dark:text-white">
+                          {classData.totalStudents}
+                        </TableCell>
+                        <TableCell className="text-gray-700 dark:text-gray-300">
+                          {classData.totalCapacity}
+                        </TableCell>
+                        <TableCell className="text-gray-700 dark:text-gray-300">
+                          {classData.subjects.length} subjects
+                        </TableCell>
+                        <TableCell>
+                          <div className="flex items-center gap-2">
+                            <div className="flex-1 h-2 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden max-w-[80px]">
+                              <div
+                                className={occupancyBarClasses}
+                                style={{ width: `${occupancy}%` }}
+                              ></div>
+                            </div>
+                            <span className="text-sm text-gray-700 dark:text-gray-300">
+                              {occupancy.toFixed(0)}%
+                            </span>
+                          </div>
+                        </TableCell>
+                        <TableCell className="text-right">
+                          <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                              <Button variant="ghost" size="icon">
+                                <MoreVertical className="w-4 h-4" />
+                              </Button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="end">
+                              <DropdownMenuItem onClick={() => handleViewDetails(classData)}>
+                                <Eye className="w-4 h-4 mr-2" />
+                                View Details
+                              </DropdownMenuItem>
+                              <DropdownMenuItem onClick={() => handleEditClass(classData)}>
+                                <Edit className="w-4 h-4 mr-2" />
+                                Edit
+                              </DropdownMenuItem>
+                              <DropdownMenuItem
+                                className="text-red-600"
+                                onClick={() => handleDeleteClass(classData)}
+                              >
+                                <Trash2 className="w-4 h-4 mr-2" />
+                                Delete
+                              </DropdownMenuItem>
+                            </DropdownMenuContent>
+                          </DropdownMenu>
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
+                </TableBody>
+              </Table>
+            </div>
+          </>
+        )}
       </Card>
 
+      {/* Dialogs */}
       {/* Add/Edit Class Dialog */}
       <Dialog open={showAddDialog} onOpenChange={handleCloseDialog}>
         <DialogContent className="max-w-4xl max-h-[90vh] overflow-hidden flex flex-col">
@@ -533,7 +811,12 @@ export function Classes() {
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="academicYear">Academic Year</Label>
-                    <Input id="academicYear" value="2024-2025" disabled />
+                    <Input
+                      id="academicYear"
+                      value={academicYear}
+                      onChange={(e) => setAcademicYear(e.target.value)}
+                      placeholder="e.g., 2024-2025"
+                    />
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="classType">Class Type</Label>
@@ -629,31 +912,40 @@ export function Classes() {
 
                 <ScrollArea className="flex-1 min-h-0">
                   <div className="grid grid-cols-2 gap-4 pr-4 pb-4">
-                    {allSubjects.map(subject => (
-                      <Card
-                        key={subject.id}
-                        className={`p-4 cursor-pointer transition-all ${selectedSubjects.includes(subject.id)
-                            ? 'border-[#0A66C2] bg-[#E8F0FE] dark:bg-[#0A66C2]/10'
-                            : ''
-                          }`}
-                        onClick={() => handleSubjectToggle(subject.id)}
-                      >
-                        <div className="flex items-start gap-3">
-                          <Checkbox
-                            checked={selectedSubjects.includes(subject.id)}
-                            onCheckedChange={() => handleSubjectToggle(subject.id)}
-                          />
-                          <div className="flex-1">
-                            <p className="text-sm text-gray-900 dark:text-white mb-1">
-                              {subject.name}
-                            </p>
-                            <p className="text-xs text-gray-500 dark:text-gray-400">
-                              Code: {subject.code}
-                            </p>
+                    {allSubjects.map(subject => {
+                      const isSelected = selectedSubjects.includes(subject.id);
+                      const subjectClasses = [
+                        'p-4',
+                        'cursor-pointer',
+                        'transition-all',
+                        isSelected ? 'border-[#0A66C2] bg-[#E8F0FE] dark:bg-[#0A66C2]/10' : '',
+                      ]
+                        .filter(Boolean)
+                        .join(' ');
+
+                      return (
+                        <Card
+                          key={subject.id}
+                          className={subjectClasses}
+                          onClick={() => handleSubjectToggle(subject.id)}
+                        >
+                          <div className="flex items-start gap-3">
+                            <Checkbox
+                              checked={isSelected}
+                              onCheckedChange={() => handleSubjectToggle(subject.id)}
+                            />
+                            <div className="flex-1">
+                              <p className="text-sm text-gray-900 dark:text-white mb-1">
+                                {subject.name}
+                              </p>
+                              <p className="text-xs text-gray-500 dark:text-gray-400">
+                                Code: {subject.code}
+                              </p>
+                            </div>
                           </div>
-                        </div>
-                      </Card>
-                    ))}
+                        </Card>
+                      );
+                    })}
                   </div>
                 </ScrollArea>
               </TabsContent>
@@ -670,8 +962,9 @@ export function Classes() {
               <Button
                 className="bg-[#0A66C2] hover:bg-[#0052A3]"
                 onClick={handleSubmitClass}
+                disabled={isSubmitting}
               >
-                {isEditMode ? 'Update Class' : 'Create Class'}
+                {isSubmitting ? 'Creating...' : isEditMode ? 'Update Class' : 'Create Class'}
               </Button>
             ) : (
               <Button
@@ -821,14 +1114,15 @@ export function Classes() {
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel onClick={() => setClassToDelete(null)}>
+            <AlertDialogCancel onClick={() => setClassToDelete(null)} disabled={isDeleting}>
               Cancel
             </AlertDialogCancel>
             <AlertDialogAction
               onClick={confirmDelete}
               className="bg-red-600 hover:bg-red-700 text-white"
+              disabled={isDeleting}
             >
-              Delete
+              {isDeleting ? 'Deleting...' : 'Delete'}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

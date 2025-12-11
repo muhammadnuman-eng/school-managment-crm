@@ -7,6 +7,10 @@ import { Card } from '../ui/card';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
 import { toast } from 'sonner';
 import { Alert, AlertDescription } from '../ui/alert';
+import { authService } from '../../services';
+import { getDeviceInfo } from '../../utils/device';
+import { getUserFriendlyError } from '../../utils/errors';
+import { ApiException } from '../../utils/errors';
 
 interface AdminRegisterProps {
   onBack: () => void;
@@ -57,18 +61,16 @@ export function AdminRegister({ onBack, onRegisterSuccess }: AdminRegisterProps)
   const [phone, setPhone] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
-  const [deviceId] = useState(() => generateUUID());
   const [ipAddress, setIpAddress] = useState('');
-  const [userAgent] = useState(() => navigator.userAgent);
 
-  // Auto-capture IP (if possible)
+  // Auto-capture IP (if possible) - optional
   useEffect(() => {
     // Try to get IP from a service (optional)
     fetch('https://api.ipify.org?format=json')
       .then(res => res.json())
       .then(data => setIpAddress(data.ip))
       .catch(() => {
-        // If fails, leave empty
+        // If fails, leave empty - not critical
         setIpAddress('');
       });
   }, []);
@@ -136,66 +138,73 @@ export function AdminRegister({ onBack, onRegisterSuccess }: AdminRegisterProps)
 
     setIsLoading(true);
 
-    // Prepare request body (for future API integration)
-    const requestBody = {
-      email,
-      password,
-      firstName,
-      lastName,
-      role,
-      ...(schoolId.trim() && { schoolId: schoolId.trim() }),
-      ...(phone.trim() && { phone: phone.trim() }),
-      device: {
-        deviceId,
-        ...(ipAddress && { ipAddress }),
-        userAgent,
-      },
-    };
-
-    // Static simulation - API call disabled for now
-    // TODO: Uncomment when API is ready
-    /*
     try {
-      // API call
-      const response = await fetch('/auth/register', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
+      // Get device info using utility
+      const deviceInfo = getDeviceInfo();
+      
+      // Prepare request body with all required fields
+      const requestBody = {
+        email: email.trim(),
+        password,
+        firstName: firstName.trim(),
+        lastName: lastName.trim(),
+        role: role as 'SUPER_ADMIN' | 'SCHOOL_ADMIN' | 'ADMIN',
+        ...(schoolId.trim() && { schoolId: schoolId.trim() }),
+        ...(phone.trim() && { phone: phone.trim() }),
+        device: {
+          deviceId: deviceInfo.deviceId,
+          userAgent: deviceInfo.userAgent,
+          ...(deviceInfo.platform && { platform: deviceInfo.platform }),
+          ...(deviceInfo.browser && { browser: deviceInfo.browser }),
+          ...(ipAddress && { ipAddress }),
         },
-        body: JSON.stringify(requestBody),
-      });
+      };
 
-      const data = await response.json();
+      // Call register API
+      const response = await authService.register(requestBody);
 
-      if (!response.ok) {
-        throw new Error(data.message || 'Registration failed');
+      if (response && response.user) {
+        toast.success(
+          response.message || 'Account created successfully! Please login to continue.'
+        );
+        
+        // Redirect to login after 2-3 seconds
+        setTimeout(() => {
+          onRegisterSuccess();
+        }, 2500);
+      } else {
+        throw new Error('Invalid response from server');
+      }
+    } catch (error: any) {
+      // Handle errors
+      let errorMessage = 'Registration failed. Please try again.';
+      
+      if (error instanceof ApiException) {
+        errorMessage = getUserFriendlyError(error);
+        
+        // Show validation errors if available
+        if (error.details && typeof error.details === 'object') {
+          const validationErrors: Record<string, string> = {};
+          Object.keys(error.details).forEach((key) => {
+            if (error.details && error.details[key]) {
+              validationErrors[key] = Array.isArray(error.details[key]) 
+                ? error.details[key][0] 
+                : error.details[key];
+            }
+          });
+          
+          if (Object.keys(validationErrors).length > 0) {
+            setErrors(validationErrors);
+          }
+        }
+      } else if (error?.message) {
+        errorMessage = error.message;
       }
 
-      toast.success('Account created successfully!');
-      
-      // Redirect to login after 2-3 seconds
-      setTimeout(() => {
-        onRegisterSuccess();
-      }, 2500);
-    } catch (error: any) {
-      toast.error(error.message || 'Registration failed. Please try again.');
+      toast.error(errorMessage);
+    } finally {
       setIsLoading(false);
     }
-    */
-
-    // Static simulation - works without API
-    console.log('Registration data (for API integration):', requestBody);
-    
-    // Simulate API delay
-    setTimeout(() => {
-      setIsLoading(false);
-      toast.success('Account created successfully!');
-      
-      // Redirect to login after 2-3 seconds
-      setTimeout(() => {
-        onRegisterSuccess();
-      }, 2500);
-    }, 1500);
   };
 
   const passwordStrength = password ? getPasswordStrength(password) : null;

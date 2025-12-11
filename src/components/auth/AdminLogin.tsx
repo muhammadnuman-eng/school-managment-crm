@@ -5,13 +5,25 @@ import { Input } from '../ui/input';
 import { Label } from '../ui/label';
 import { Checkbox } from '../ui/checkbox';
 import { Card } from '../ui/card';
-import { Switch } from '../ui/switch';
 import { toast } from 'sonner@2.0.3';
+import { authService } from '../../services';
+import { getDeviceInfo } from '../../utils/device';
+import { getUserFriendlyError } from '../../utils/errors';
+import { ApiException } from '../../utils/errors';
+import { tokenStorage, userStorage } from '../../utils/storage';
 
 interface AdminLoginProps {
   onBack: () => void;
   onForgotPassword: (email: string) => void;
-  onLogin: (email: string, password: string, needs2FA: boolean) => void;
+  onLogin: (
+    email: string, 
+    password: string, 
+    needs2FA: boolean, 
+    tempToken?: string, 
+    isFirstLogin?: boolean,
+    sessionId?: string,
+    userId?: string
+  ) => void;
   onSignup?: () => void;
 }
 
@@ -20,25 +32,145 @@ export function AdminLogin({ onBack, onForgotPassword, onLogin, onSignup }: Admi
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [rememberMe, setRememberMe] = useState(false);
-  const [enable2FA, setEnable2FA] = useState(true);
   const [isLoading, setIsLoading] = useState(false);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
+    // Validation
     if (!email || !password) {
       toast.error('Please fill in all fields');
       return;
     }
 
+    // Email validation
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email)) {
+      toast.error('Please enter a valid email address');
+      return;
+    }
+
     setIsLoading(true);
 
-    // Simulate API call
-    setTimeout(() => {
+    try {
+      // Call login API
+      const response = await authService.adminLogin({
+        email: email.trim(),
+        password,
+        rememberMe,
+        deviceInfo: getDeviceInfo(),
+      });
+
+      // Flags from backend + UI
+      const isFirstLogin = response.isFirstLogin || false;
+      const backendRequires2FA =
+        response.requires2FA ||
+        (response as any).requiresTwoFactor ||
+        false;
+      const hasTokens = !!response.tokens;
+
+      // OTP decision matrix:
+      // - First login => always OTP (regardless of Remember Me)
+      // - After first login:
+      //     Remember Me checked => skip OTP (direct dashboard)
+      //     Remember Me unchecked + backend requires 2FA => OTP
+      //     Remember Me unchecked + backend doesn't require 2FA => skip OTP
+      const shouldUseOTP =
+        isFirstLogin ||
+        (!rememberMe && backendRequires2FA);
+
+      if (shouldUseOTP) {
+        // Store remember me flag temporarily for OTP verification
+        if (rememberMe) {
+          sessionStorage.setItem('auth_remember_me', 'true');
+        } else {
+          sessionStorage.removeItem('auth_remember_me');
+        }
+
+        // Always redirect to OTP screen for first login or when 2FA is enabled/required
+        toast.success(response.message || 'OTP sent to your email');
+        
+        // Extract sessionId and userId from response (handle different response formats)
+        const sessionId =
+          (response as any).sessionId ||
+          response.sessionId ||
+          (response as any).session?.id;
+        const userId =
+          (response as any).userId ||
+          response.userId ||
+          (response.user as any)?.id ||
+          response.user?.id;
+        
+        // Store sessionId and userId for OTP verification
+        if (sessionId) {
+          sessionStorage.setItem('auth_session_id', String(sessionId));
+          console.log('Stored sessionId:', sessionId); // Debug log
+        } else {
+          console.warn('sessionId not found in login response:', response); // Debug log
+        }
+        
+        if (userId) {
+          sessionStorage.setItem('auth_user_id', String(userId));
+          console.log('Stored userId:', userId); // Debug log
+        } else {
+          console.warn('userId not found in login response:', response); // Debug log
+        }
+        
+        // Keep tempToken for backward compatibility
+        if (response.tempToken) {
+          sessionStorage.setItem('auth_temp_token', response.tempToken);
+        }
+        
+        onLogin(
+          email, 
+          password, 
+          true, 
+          response.tempToken, 
+          isFirstLogin,
+          sessionId,
+          userId
+        );
+      } else {
+        // If OTP not required, use tokens directly (should come from backend)
+        if (!hasTokens || !response.tokens) {
+          toast.error('Login response missing tokens. Please try again.');
+          return;
+        }
+        if (hasTokens && response.tokens) {
+          const remember = rememberMe;
+          tokenStorage.setTokens(response.tokens, remember);
+          if (response.user) {
+            userStorage.setUser(response.user, remember);
+          }
+        }
+        // Clear any residual temp session flags
+        sessionStorage.removeItem('auth_remember_me');
+        sessionStorage.removeItem('auth_session_id');
+        sessionStorage.removeItem('auth_user_id');
+        sessionStorage.removeItem('auth_temp_token');
+
+        toast.success('Login successful');
+        onLogin(email, password, false);
+      }
+    } catch (error: any) {
+      // Handle errors
+      let errorMessage = 'Login failed. Please try again.';
+      
+      if (error instanceof ApiException) {
+        errorMessage = getUserFriendlyError(error);
+        
+        // Show detailed error for 400 Bad Request
+        if (error.statusCode === 400 && error.details) {
+          console.error('Login error details:', error.details);
+        }
+      } else if (error?.message) {
+        errorMessage = error.message;
+      }
+
+      toast.error(errorMessage);
+    } finally {
       setIsLoading(false);
-      toast.success('Login credentials verified');
-      onLogin(email, password, enable2FA);
-    }, 1500);
+    }
   };
 
   return (
@@ -145,23 +277,6 @@ export function AdminLogin({ onBack, onForgotPassword, onLogin, onSignup }: Admi
               >
                 Forgot Password?
               </button>
-            </div>
-
-            {/* 2FA Toggle */}
-            <div className="flex items-center justify-between p-4 bg-gray-50 dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700">
-              <div>
-                <label htmlFor="2fa" className="text-sm text-gray-900 dark:text-white cursor-pointer">
-                  Enable 2FA for this session
-                </label>
-                <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                  Additional security layer
-                </p>
-              </div>
-              <Switch
-                id="2fa"
-                checked={enable2FA}
-                onCheckedChange={setEnable2FA}
-              />
             </div>
 
             {/* Login Button */}

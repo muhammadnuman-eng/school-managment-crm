@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { Search, Filter, Plus, Download, MoreVertical, Eye, Edit, Calendar, Trash2, X, CheckCircle2 } from 'lucide-react';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
@@ -32,32 +32,26 @@ import {
 import { Label } from '../ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../ui/tabs';
+import { adminService } from '../../services';
+import { Teacher, AddTeacherRequest, UpdateTeacherRequest } from '../../types/teacher.types';
+import { ApiException, getUserFriendlyError } from '../../utils/errors';
 
-interface Teacher {
-  id: number;
-  name: string;
-  employeeId: string;
-  subject: string;
-  qualification: string;
-  experience: string;
-  email: string;
-  phone: string;
-  classes: number;
-  performance: number;
-  status: 'Active' | 'Inactive';
-  specialization?: string;
-  joiningDate?: string;
-  address?: string;
-}
-
-const initialTeachers: Teacher[] = [
-  { id: 1, name: 'Dr. Sarah Mitchell', employeeId: 'T001', subject: 'Mathematics', qualification: 'PhD', experience: '12 years', email: 'sarah.m@school.com', phone: '+1234567890', classes: 5, performance: 94, status: 'Active' },
-  { id: 2, name: 'Prof. Michael Chen', employeeId: 'T002', subject: 'Physics', qualification: 'MSc', experience: '8 years', email: 'michael.c@school.com', phone: '+1234567891', classes: 4, performance: 91, status: 'Active' },
-  { id: 3, name: 'Ms. Emma Wilson', employeeId: 'T003', subject: 'English', qualification: 'MA', experience: '6 years', email: 'emma.w@school.com', phone: '+1234567892', classes: 6, performance: 96, status: 'Active' },
-  { id: 4, name: 'Mr. David Brown', employeeId: 'T004', subject: 'Chemistry', qualification: 'MSc', experience: '10 years', email: 'david.b@school.com', phone: '+1234567893', classes: 5, performance: 89, status: 'Inactive' },
-  { id: 5, name: 'Ms. Lisa Anderson', employeeId: 'T005', subject: 'Biology', qualification: 'MSc', experience: '7 years', email: 'lisa.a@school.com', phone: '+1234567894', classes: 4, performance: 92, status: 'Active' },
-  { id: 6, name: 'Mr. John Smith', employeeId: 'T006', subject: 'History', qualification: 'MA', experience: '9 years', email: 'john.s@school.com', phone: '+1234567895', classes: 3, performance: 88, status: 'Active' },
-];
+const normalizeTeacher = (t: any): Teacher => ({
+  id: t?.id?.toString?.() || t?.uuid?.toString?.() || `${Date.now()}`,
+  name: t?.name || `${t?.firstName || ''} ${t?.lastName || ''}`.trim() || 'Unnamed Teacher',
+  employeeId: t?.employeeId || '',
+  subject: t?.subject || '',
+  qualification: t?.qualification || '',
+  experience: t?.experience || '',
+  email: t?.email || '',
+  phone: t?.phone || '',
+  classes: typeof t?.classes === 'number' ? t.classes : 0,
+  performance: typeof t?.performance === 'number' ? t.performance : 0,
+  status: (t?.status as Teacher['status']) || 'Active',
+  specialization: t?.specialization || '',
+  joiningDate: t?.joiningDate || '',
+  address: t?.address || '',
+});
 
 const timetable = [
   {
@@ -79,13 +73,16 @@ const timetable = [
 ];
 
 export function Teachers() {
-  const [teachers, setTeachers] = useState<Teacher[]>(initialTeachers);
+  const [teachers, setTeachers] = useState<Teacher[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
   const [activeTab, setActiveTab] = useState('list');
   const [showAddDialog, setShowAddDialog] = useState(false);
   const [selectedTeacher, setSelectedTeacher] = useState<Teacher | null>(null);
   const [showProfileDialog, setShowProfileDialog] = useState(false);
   const [isEditMode, setIsEditMode] = useState(false);
-  const [editingTeacherId, setEditingTeacherId] = useState<number | null>(null);
+  const [editingTeacherId, setEditingTeacherId] = useState<string | null>(null);
   
   // Filter state
   const [showFilterDialog, setShowFilterDialog] = useState(false);
@@ -106,6 +103,91 @@ export function Teachers() {
   const [phone, setPhone] = useState('');
   const [joiningDate, setJoiningDate] = useState('');
   const [address, setAddress] = useState('');
+
+  const handleDeleteTeacher = async (teacher: Teacher) => {
+    const confirmed = window.confirm(`Delete ${teacher.name}? This cannot be undone.`);
+    if (!confirmed) return;
+
+    setIsDeleting(true);
+    try {
+      await adminService.deleteTeacher(teacher.id);
+      setTeachers(teachers.filter(t => t.id !== teacher.id));
+      toast.success(
+        <div className="flex items-start gap-3 w-full">
+          <CheckCircle2 className="w-5 h-5 text-green-600 dark:text-green-400 flex-shrink-0 mt-0.5" />
+          <div className="flex flex-col gap-1 flex-1 min-w-0">
+            <span className="font-semibold text-sm text-gray-900 dark:text-white leading-tight">Teacher deleted</span>
+            <span className="text-xs text-gray-600 dark:text-gray-400 leading-tight">{teacher.name} has been removed.</span>
+          </div>
+        </div>,
+        { duration: 3000, icon: null }
+      );
+    } catch (error: any) {
+      let message = 'Failed to delete teacher.';
+      if (error instanceof ApiException) {
+        message = getUserFriendlyError(error);
+      } else if (error?.message) {
+        message = error.message;
+      }
+      toast.error(message);
+    } finally {
+      setIsDeleting(false);
+    }
+  };
+
+  const handleToggleStatus = async (teacher: Teacher, checked: boolean) => {
+    const newStatus: Teacher['status'] = checked ? 'Active' : 'Inactive';
+    setTeachers(teachers.map(t => t.id === teacher.id ? { ...t, status: newStatus } : t));
+    try {
+      await adminService.updateTeacher(teacher.id, { status: newStatus });
+    } catch (error: any) {
+      // revert on failure
+      setTeachers(teachers.map(t => t.id === teacher.id ? { ...t, status: teacher.status } : t));
+      let message = 'Failed to update status.';
+      if (error instanceof ApiException) {
+        message = getUserFriendlyError(error);
+      } else if (error?.message) {
+        message = error.message;
+      }
+      toast.error(message);
+      return;
+    }
+
+    toast.success(
+      <div className="flex items-start gap-3 w-full">
+        <CheckCircle2 className="w-5 h-5 text-green-600 dark:text-green-400 flex-shrink-0 mt-0.5" />
+        <div className="flex flex-col gap-1 flex-1 min-w-0">
+          <span className="font-semibold text-sm text-gray-900 dark:text-white leading-tight">Status updated</span>
+          <span className="text-xs text-gray-600 dark:text-gray-400 leading-tight">{teacher.name} is now {newStatus?.toLowerCase()}.</span>
+        </div>
+      </div>,
+      { duration: 2000, icon: null }
+    );
+  };
+
+  useEffect(() => {
+    fetchTeachers();
+  }, []);
+
+  const fetchTeachers = async () => {
+    setIsLoading(true);
+    try {
+      const response = await adminService.getTeachers();
+      const list = Array.isArray((response as any).teachers) ? (response as any).teachers : [];
+      setTeachers(list.map(normalizeTeacher));
+    } catch (error: any) {
+      let message = 'Failed to load teachers. Please try again.';
+      if (error instanceof ApiException) {
+        message = getUserFriendlyError(error);
+      } else if (error?.message) {
+        message = error.message;
+      }
+      toast.error(message);
+      setTeachers([]);
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
   // Get unique subjects from teachers
   const availableSubjects = useMemo(() => {
@@ -141,9 +223,21 @@ export function Teachers() {
     return filtered;
   }, [teachers, searchQuery, filterType, selectedFilterStatus, selectedFilterSubject]);
 
-  const handleViewProfile = (teacher: Teacher) => {
-    setSelectedTeacher(teacher);
-    setShowProfileDialog(true);
+  const handleViewProfile = async (teacher: Teacher) => {
+    try {
+      const response = await adminService.getTeacherById(teacher.id);
+      const data = response.data ? normalizeTeacher(response.data) : teacher;
+      setSelectedTeacher(data);
+      setShowProfileDialog(true);
+    } catch (error: any) {
+      let message = 'Failed to load teacher profile.';
+      if (error instanceof ApiException) {
+        message = getUserFriendlyError(error);
+      } else if (error?.message) {
+        message = error.message;
+      }
+      toast.error(message);
+    }
   };
 
   const handleExport = () => {
@@ -203,10 +297,9 @@ export function Teachers() {
     setShowAddDialog(true);
   };
 
-  const handleUpdateTeacher = () => {
+  const handleUpdateTeacher = async () => {
     if (!editingTeacherId) return;
 
-    // Validate required fields
     if (!firstName || !lastName || !employeeId || !selectedSubject || !qualification || !email || !phone) {
       toast.error('Please fill all required fields', {
         description: 'First name, last name, employee ID, subject, qualification, email, and phone are required.',
@@ -214,7 +307,6 @@ export function Teachers() {
       return;
     }
 
-    // Check if employee ID already exists (excluding current teacher)
     const employeeIdExists = teachers.some(t => t.employeeId === employeeId && t.id !== editingTeacherId);
     if (employeeIdExists) {
       toast.error('Employee ID already exists', {
@@ -223,53 +315,61 @@ export function Teachers() {
       return;
     }
 
-    // Update teacher
-    const updatedTeacher: Teacher = {
-      id: editingTeacherId,
+    const payload: UpdateTeacherRequest = {
       name: `${firstName} ${lastName}`,
-      employeeId: employeeId,
+      firstName,
+      lastName,
+      employeeId,
       subject: selectedSubject,
-      qualification: qualification,
-      specialization: specialization,
-      experience: experience,
-      email: email,
-      phone: phone,
-      classes: teachers.find(t => t.id === editingTeacherId)?.classes || 0,
-      performance: teachers.find(t => t.id === editingTeacherId)?.performance || 0,
-      status: teachers.find(t => t.id === editingTeacherId)?.status || 'Active',
-      joiningDate: joiningDate,
-      address: address,
+      qualification,
+      specialization,
+      experience,
+      email,
+      phone,
+      joiningDate,
+      address,
     };
 
-    setTeachers(teachers.map(t => t.id === editingTeacherId ? updatedTeacher : t));
+    setIsSubmitting(true);
+    try {
+      const response = await adminService.updateTeacher(editingTeacherId, payload);
+      const updatedTeacher = normalizeTeacher(response.data);
+      setTeachers(teachers.map(t => t.id === editingTeacherId ? updatedTeacher : t));
 
-    // Show success toast
-    toast.success(
-      <div className="flex items-start gap-3 w-full">
-        <CheckCircle2 className="w-5 h-5 text-green-600 dark:text-green-400 flex-shrink-0 mt-0.5" />
-        <div className="flex flex-col gap-1 flex-1 min-w-0">
-          <span className="font-semibold text-sm text-gray-900 dark:text-white leading-tight">Teacher updated successfully</span>
-          <span className="text-xs text-gray-600 dark:text-gray-400 leading-tight">{updatedTeacher.name} has been updated.</span>
-        </div>
-      </div>,
-      {
-        duration: 3000,
-        icon: null,
+      toast.success(
+        <div className="flex items-start gap-3 w-full">
+          <CheckCircle2 className="w-5 h-5 text-green-600 dark:text-green-400 flex-shrink-0 mt-0.5" />
+          <div className="flex flex-col gap-1 flex-1 min-w-0">
+            <span className="font-semibold text-sm text-gray-900 dark:text-white leading-tight">Teacher updated successfully</span>
+            <span className="text-xs text-gray-600 dark:text-gray-400 leading-tight">{updatedTeacher.name} has been updated.</span>
+          </div>
+        </div>,
+        {
+          duration: 3000,
+          icon: null,
+        }
+      );
+
+      handleCloseDialog();
+    } catch (error: any) {
+      let message = 'Failed to update teacher.';
+      if (error instanceof ApiException) {
+        message = getUserFriendlyError(error);
+      } else if (error?.message) {
+        message = error.message;
       }
-    );
-
-    // Reset and close
-    handleCloseDialog();
+      toast.error(message);
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
-  const handleAddTeacher = () => {
-    // If in edit mode, call update instead
+  const handleAddTeacher = async () => {
     if (isEditMode) {
-      handleUpdateTeacher();
+      await handleUpdateTeacher();
       return;
     }
 
-    // Validate required fields
     if (!firstName || !lastName || !employeeId || !selectedSubject || !qualification || !email || !phone) {
       toast.error('Please fill all required fields', {
         description: 'First name, last name, employee ID, subject, qualification, email, and phone are required.',
@@ -277,7 +377,6 @@ export function Teachers() {
       return;
     }
 
-    // Check if employee ID already exists
     const employeeIdExists = teachers.some(t => t.employeeId === employeeId);
     if (employeeIdExists) {
       toast.error('Employee ID already exists', {
@@ -286,44 +385,58 @@ export function Teachers() {
       return;
     }
 
-    // Create new teacher object
-    const newTeacher: Teacher = {
-      id: teachers.length > 0 ? Math.max(...teachers.map(t => t.id)) + 1 : 1,
+    const tempPassword = phone && typeof phone === 'string' && phone.length >= 6
+      ? `P@${phone.slice(-6)}`
+      : 'Temp@1234';
+
+    const payload: AddTeacherRequest = {
       name: `${firstName} ${lastName}`,
-      employeeId: employeeId,
+      firstName,
+      lastName,
+      employeeId,
       subject: selectedSubject,
-      qualification: qualification,
-      specialization: specialization,
-      experience: experience,
-      email: email,
-      phone: phone,
-      classes: 0,
-      performance: 0,
-      status: 'Active',
-      joiningDate: joiningDate,
-      address: address,
+      qualification,
+      specialization,
+      experience,
+      email,
+      phone,
+      joiningDate,
+      address,
+      password: tempPassword,
     };
 
-    // Add teacher to list
-    setTeachers([...teachers, newTeacher]);
+    setIsSubmitting(true);
+    try {
+      const response = await adminService.addTeacher(payload);
+      const newTeacher = normalizeTeacher(response.data);
+      setTeachers([...teachers, newTeacher]);
 
-    // Show success toast
-    toast.success(
-      <div className="flex items-start gap-3 w-full">
-        <CheckCircle2 className="w-5 h-5 text-green-600 dark:text-green-400 flex-shrink-0 mt-0.5" />
-        <div className="flex flex-col gap-1 flex-1 min-w-0">
-          <span className="font-semibold text-sm text-gray-900 dark:text-white leading-tight">Teacher added successfully</span>
-          <span className="text-xs text-gray-600 dark:text-gray-400 leading-tight">{newTeacher.name} has been added to the teacher list.</span>
-        </div>
-      </div>,
-      {
-        duration: 3000,
-        icon: null,
+      toast.success(
+        <div className="flex items-start gap-3 w-full">
+          <CheckCircle2 className="w-5 h-5 text-green-600 dark:text-green-400 flex-shrink-0 mt-0.5" />
+          <div className="flex flex-col gap-1 flex-1 min-w-0">
+            <span className="font-semibold text-sm text-gray-900 dark:text-white leading-tight">Teacher added successfully</span>
+            <span className="text-xs text-gray-600 dark:text-gray-400 leading-tight">{newTeacher.name} has been added to the teacher list.</span>
+          </div>
+        </div>,
+        {
+          duration: 3000,
+          icon: null,
+        }
+      );
+
+      handleCloseDialog();
+    } catch (error: any) {
+      let message = 'Failed to add teacher.';
+      if (error instanceof ApiException) {
+        message = getUserFriendlyError(error);
+      } else if (error?.message) {
+        message = error.message;
       }
-    );
-
-    // Reset form
-    handleCloseDialog();
+      toast.error(message);
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   const handleApplyFilter = () => {
@@ -403,118 +516,106 @@ export function Teachers() {
             </div>
 
             <div className="border rounded-lg overflow-hidden">
-              <Table>
-                <TableHeader>
-                  <TableRow className="bg-gray-50 dark:bg-gray-800">
-                    <TableHead>Teacher</TableHead>
-                    <TableHead>Employee ID</TableHead>
-                    <TableHead>Subject</TableHead>
-                    <TableHead>Qualification</TableHead>
-                    <TableHead>Experience</TableHead>
-                    <TableHead>Classes</TableHead>
-                    <TableHead>Performance</TableHead>
-                    <TableHead>Status</TableHead>
-                    <TableHead className="text-right">Actions</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {filteredTeachers.length === 0 ? (
-                    <TableRow>
-                      <TableCell colSpan={9} className="text-center py-8 text-gray-500 dark:text-gray-400">
-                        No teachers found
-                      </TableCell>
+              {isLoading ? (
+                <div className="flex items-center justify-center py-10 text-gray-500 dark:text-gray-400">
+                  Loading teachers...
+                </div>
+              ) : (
+                <Table>
+                  <TableHeader>
+                    <TableRow className="bg-gray-50 dark:bg-gray-800">
+                      <TableHead>Teacher</TableHead>
+                      <TableHead>Employee ID</TableHead>
+                      <TableHead>Subject</TableHead>
+                      <TableHead>Qualification</TableHead>
+                      <TableHead>Experience</TableHead>
+                      <TableHead>Classes</TableHead>
+                      <TableHead>Performance</TableHead>
+                      <TableHead>Status</TableHead>
+                      <TableHead className="text-right">Actions</TableHead>
                     </TableRow>
-                  ) : (
-                    filteredTeachers.map((teacher) => (
-                      <TableRow key={teacher.id} className="hover:bg-gray-50 dark:hover:bg-gray-800">
-                        <TableCell>
-                          <div className="flex items-center gap-3">
-                            <Avatar className="w-10 h-10">
-                              <AvatarFallback className="bg-gradient-to-br from-[#0A66C2] to-[#0052A3] text-white">
-                                {teacher.name.split(' ').map(n => n[0]).join('').slice(0, 2)}
-                              </AvatarFallback>
-                            </Avatar>
-                            <div>
-                              <p className="text-sm text-gray-900 dark:text-white">{teacher.name}</p>
-                              <p className="text-xs text-gray-500 dark:text-gray-400">{teacher.email}</p>
-                            </div>
-                          </div>
-                        </TableCell>
-                        <TableCell className="text-gray-700 dark:text-gray-300">{teacher.employeeId}</TableCell>
-                        <TableCell>
-                          <Badge variant="outline">{teacher.subject}</Badge>
-                        </TableCell>
-                        <TableCell className="text-gray-700 dark:text-gray-300">{teacher.qualification}</TableCell>
-                        <TableCell className="text-gray-700 dark:text-gray-300">{teacher.experience}</TableCell>
-                        <TableCell className="text-gray-700 dark:text-gray-300">{teacher.classes}</TableCell>
-                        <TableCell>
-                          <div className="flex items-center gap-2">
-                            <div className="flex-1 h-2 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden max-w-[60px]">
-                              <div
-                                className="h-full bg-green-500"
-                                style={{ width: `${teacher.performance}%` }}
-                              ></div>
-                            </div>
-                            <span className="text-sm text-gray-700 dark:text-gray-300">{teacher.performance}%</span>
-                          </div>
-                        </TableCell>
-                        <TableCell>
-                          <Switch
-                            checked={teacher.status === 'Active'}
-                            onCheckedChange={(checked) => {
-                              const newStatus = checked ? 'Active' : 'Inactive';
-                              setTeachers(teachers.map(t => 
-                                t.id === teacher.id ? { ...t, status: newStatus } : t
-                              ));
-                              toast.success(
-                                <div className="flex items-start gap-3 w-full">
-                                  <CheckCircle2 className="w-5 h-5 text-green-600 dark:text-green-400 flex-shrink-0 mt-0.5" />
-                                  <div className="flex flex-col gap-1 flex-1 min-w-0">
-                                    <span className="font-semibold text-sm text-gray-900 dark:text-white leading-tight">Status updated</span>
-                                    <span className="text-xs text-gray-600 dark:text-gray-400 leading-tight">{teacher.name} is now {newStatus.toLowerCase()}.</span>
-                                  </div>
-                                </div>,
-                                {
-                                  duration: 2000,
-                                  icon: null,
-                                }
-                              );
-                            }}
-                            className="data-[state=checked]:bg-green-500 dark:data-[state=checked]:bg-green-600"
-                          />
-                        </TableCell>
-                        <TableCell className="text-right">
-                          <DropdownMenu>
-                            <DropdownMenuTrigger asChild>
-                              <Button variant="ghost" size="icon">
-                                <MoreVertical className="w-4 h-4" />
-                              </Button>
-                            </DropdownMenuTrigger>
-                            <DropdownMenuContent align="end">
-                              <DropdownMenuItem onClick={() => handleViewProfile(teacher)}>
-                                <Eye className="w-4 h-4 mr-2" />
-                                View Profile
-                              </DropdownMenuItem>
-                              <DropdownMenuItem onClick={() => handleEditTeacher(teacher)}>
-                                <Edit className="w-4 h-4 mr-2" />
-                                Edit
-                              </DropdownMenuItem>
-                              <DropdownMenuItem>
-                                <Calendar className="w-4 h-4 mr-2" />
-                                View Schedule
-                              </DropdownMenuItem>
-                              <DropdownMenuItem className="text-red-600">
-                                <Trash2 className="w-4 h-4 mr-2" />
-                                Delete
-                              </DropdownMenuItem>
-                            </DropdownMenuContent>
-                          </DropdownMenu>
+                  </TableHeader>
+                  <TableBody>
+                    {filteredTeachers.length === 0 ? (
+                      <TableRow>
+                        <TableCell colSpan={9} className="text-center py-8 text-gray-500 dark:text-gray-400">
+                          No teachers found
                         </TableCell>
                       </TableRow>
-                    ))
-                  )}
-                </TableBody>
-              </Table>
+                    ) : (
+                      filteredTeachers.map((teacher) => (
+                        <TableRow key={teacher.id} className="hover:bg-gray-50 dark:hover:bg-gray-800">
+                          <TableCell>
+                            <div className="flex items-center gap-3">
+                              <Avatar className="w-10 h-10">
+                                <AvatarFallback className="bg-gradient-to-br from-[#0A66C2] to-[#0052A3] text-white">
+                                  {teacher.name.split(' ').map(n => n[0]).join('').slice(0, 2)}
+                                </AvatarFallback>
+                              </Avatar>
+                              <div>
+                                <p className="text-sm text-gray-900 dark:text-white">{teacher.name}</p>
+                                <p className="text-xs text-gray-500 dark:text-gray-400">{teacher.email}</p>
+                              </div>
+                            </div>
+                          </TableCell>
+                          <TableCell className="text-gray-700 dark:text-gray-300">{teacher.employeeId}</TableCell>
+                          <TableCell>
+                            <Badge variant="outline">{teacher.subject}</Badge>
+                          </TableCell>
+                          <TableCell className="text-gray-700 dark:text-gray-300">{teacher.qualification}</TableCell>
+                          <TableCell className="text-gray-700 dark:text-gray-300">{teacher.experience}</TableCell>
+                          <TableCell className="text-gray-700 dark:text-gray-300">{teacher.classes}</TableCell>
+                          <TableCell>
+                            <div className="flex items-center gap-2">
+                              <div className="flex-1 h-2 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden max-w-[60px]">
+                                <div
+                                  className="h-full bg-green-500"
+                                  style={{ width: `${teacher.performance}%` }}
+                                ></div>
+                              </div>
+                              <span className="text-sm text-gray-700 dark:text-gray-300">{teacher.performance}%</span>
+                            </div>
+                          </TableCell>
+                          <TableCell>
+                            <Switch
+                              checked={teacher.status === 'Active'}
+                              onCheckedChange={(checked) => handleToggleStatus(teacher, checked as boolean)}
+                              className="data-[state=checked]:bg-green-500 dark:data-[state=checked]:bg-green-600"
+                            />
+                          </TableCell>
+                          <TableCell className="text-right">
+                            <DropdownMenu>
+                              <DropdownMenuTrigger asChild>
+                                <Button variant="ghost" size="icon">
+                                  <MoreVertical className="w-4 h-4" />
+                                </Button>
+                              </DropdownMenuTrigger>
+                              <DropdownMenuContent align="end">
+                                <DropdownMenuItem onClick={() => handleViewProfile(teacher)}>
+                                  <Eye className="w-4 h-4 mr-2" />
+                                  View Profile
+                                </DropdownMenuItem>
+                                <DropdownMenuItem onClick={() => handleEditTeacher(teacher)}>
+                                  <Edit className="w-4 h-4 mr-2" />
+                                  Edit
+                                </DropdownMenuItem>
+                                <DropdownMenuItem>
+                                  <Calendar className="w-4 h-4 mr-2" />
+                                  View Schedule
+                                </DropdownMenuItem>
+                                <DropdownMenuItem className="text-red-600" onClick={() => handleDeleteTeacher(teacher)}>
+                                  <Trash2 className="w-4 h-4 mr-2" />
+                                  Delete
+                                </DropdownMenuItem>
+                              </DropdownMenuContent>
+                            </DropdownMenu>
+                          </TableCell>
+                        </TableRow>
+                      ))
+                    )}
+                  </TableBody>
+                </Table>
+              )}
             </div>
           </Card>
         </TabsContent>
@@ -713,8 +814,12 @@ export function Teachers() {
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={handleCloseDialog}>Cancel</Button>
-            <Button className="bg-[#0A66C2] hover:bg-[#0052A3]" onClick={handleAddTeacher}>
-              {isEditMode ? 'Update Teacher' : 'Add Teacher'}
+            <Button
+              className="bg-[#0A66C2] hover:bg-[#0052A3]"
+              onClick={handleAddTeacher}
+              disabled={isSubmitting}
+            >
+              {isSubmitting ? 'Saving...' : isEditMode ? 'Update Teacher' : 'Add Teacher'}
             </Button>
           </DialogFooter>
         </DialogContent>

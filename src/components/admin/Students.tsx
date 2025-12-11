@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { Search, Filter, Plus, Download, MoreVertical, Eye, Edit, Trash2, X, CheckCircle2 } from 'lucide-react';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
@@ -7,6 +7,10 @@ import { Avatar, AvatarFallback } from '../ui/avatar';
 import { Badge } from '../ui/badge';
 import { Switch } from '../ui/switch';
 import { toast } from 'sonner';
+import { adminService } from '../../services';
+import { AddStudentRequest, UpdateStudentRequest, Student as StudentType } from '../../types/student.types';
+import { getUserFriendlyError } from '../../utils/errors';
+import { ApiException } from '../../utils/errors';
 import {
   Table,
   TableBody,
@@ -29,40 +33,95 @@ import {
   DialogTitle,
   DialogFooter,
 } from '../ui/dialog';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '../ui/alert-dialog';
 import { Label } from '../ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
 
-interface Student {
-  id: number;
-  name: string;
-  rollNo: string;
-  class: string;
-  section: string;
-  email: string;
-  phone: string;
-  status: 'Active' | 'Inactive';
-  attendance: number;
-}
-
-const initialStudents: Student[] = [
-  { id: 1, name: 'Emily Rodriguez', rollNo: 'ST001', class: 'Grade 10A', section: 'A', email: 'emily.r@school.com', phone: '+1234567890', status: 'Active', attendance: 95 },
-  { id: 2, name: 'James Wilson', rollNo: 'ST002', class: 'Grade 9B', section: 'B', email: 'james.w@school.com', phone: '+1234567891', status: 'Active', attendance: 92 },
-  { id: 3, name: 'Sophia Lee', rollNo: 'ST003', class: 'Grade 11A', section: 'A', email: 'sophia.l@school.com', phone: '+1234567892', status: 'Active', attendance: 98 },
-  { id: 4, name: 'Oliver Thompson', rollNo: 'ST004', class: 'Grade 8C', section: 'C', email: 'oliver.t@school.com', phone: '+1234567893', status: 'Active', attendance: 88 },
-  { id: 5, name: 'Ava Martinez', rollNo: 'ST005', class: 'Grade 12A', section: 'A', email: 'ava.m@school.com', phone: '+1234567894', status: 'Active', attendance: 96 },
-  { id: 6, name: 'Noah Garcia', rollNo: 'ST006', class: 'Grade 7B', section: 'B', email: 'noah.g@school.com', phone: '+1234567895', status: 'Inactive', attendance: 75 },
-];
+// Using StudentType from types to match API response
+type Student = StudentType;
 
 export function Students() {
-  const [students, setStudents] = useState<Student[]>(initialStudents);
+  const [students, setStudents] = useState<Student[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
   const [showAddDialog, setShowAddDialog] = useState(false);
   const [selectedStudent, setSelectedStudent] = useState<Student | null>(null);
   const [showProfileDialog, setShowProfileDialog] = useState(false);
   const [isEditMode, setIsEditMode] = useState(false);
-  const [editingStudentId, setEditingStudentId] = useState<number | null>(null);
+  const [editingStudentId, setEditingStudentId] = useState<string | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [showDeleteDialog, setShowDeleteDialog] = useState(false);
+  const [studentToDelete, setStudentToDelete] = useState<Student | null>(null);
   
   // Class view state (default: Grade 10)
   const [currentViewClass, setCurrentViewClass] = useState<string>('Grade 10');
+  
+  // Fetch students from API
+  useEffect(() => {
+    fetchStudents();
+  }, [currentViewClass]); // Refetch when class view changes
+
+  const fetchStudents = async () => {
+    setIsLoading(true);
+    try {
+      // Extract grade from currentViewClass (e.g., "Grade 10" -> "Grade 10")
+      const response = await adminService.getStudents({
+        class: currentViewClass,
+      });
+      
+      // Safety check for response
+      if (!response || !response.students) {
+        console.warn('Invalid API response structure:', response);
+        setStudents([]);
+        return;
+      }
+      
+      // Normalize student data to match component expectations
+      const normalizedStudents = (response.students || []).map((student: any) => ({
+        ...student,
+        id: student.id ? student.id.toString() : Math.random().toString(),
+        name: student.name || `${student.firstName || ''} ${student.lastName || ''}`.trim() || 'Unknown',
+        class: student.class || currentViewClass,
+        section: student.section || '',
+        status: student.status || 'Active',
+        attendance: typeof student.attendance === 'number' ? student.attendance : 0,
+        email: student.email || '',
+        phone: student.phone || '',
+        rollNo: student.rollNo || '',
+      }));
+      
+      setStudents(normalizedStudents);
+      
+      if (import.meta.env.DEV) {
+        console.log('Fetched students:', {
+          currentViewClass,
+          students: normalizedStudents,
+          count: normalizedStudents.length,
+          rawResponse: response,
+        });
+      }
+    } catch (error: any) {
+      let errorMessage = 'Failed to load students. Please try again.';
+      if (error instanceof ApiException) {
+        errorMessage = getUserFriendlyError(error);
+      } else if (error?.message) {
+        errorMessage = error.message;
+      }
+      toast.error(errorMessage);
+      console.error('Fetch students error:', error);
+      setStudents([]); // Set empty array on error
+    } finally {
+      setIsLoading(false);
+    }
+  };
   
   // Filter state
   const [showFilterDialog, setShowFilterDialog] = useState(false);
@@ -73,18 +132,53 @@ export function Students() {
   // Form state
   const [firstName, setFirstName] = useState('');
   const [lastName, setLastName] = useState('');
-  const [rollNo, setRollNo] = useState('');
   const [dob, setDob] = useState('');
   const [selectedClass, setSelectedClass] = useState('');
-  const [section, setSection] = useState('');
-  const [email, setEmail] = useState('');
+  const [sectionId, setSectionId] = useState<string>('');
   const [phone, setPhone] = useState('');
   const [parentPhone, setParentPhone] = useState('');
   const [address, setAddress] = useState('');
+  
+  // Class and section data
+  const [classUUID, setClassUUID] = useState<string | null>(null);
+  const [availableSections, setAvailableSections] = useState<Array<{id: string; name: string}>>([
+    { id: 'A', name: 'A' },
+    { id: 'B', name: 'B' },
+    { id: 'C', name: 'C' },
+    { id: 'D', name: 'D' },
+  ]);
+  const [isLoadingClassData, setIsLoadingClassData] = useState(false);
 
-  const handleViewProfile = (student: Student) => {
-    setSelectedStudent(student);
-    setShowProfileDialog(true);
+  const handleViewProfile = async (student: Student) => {
+    try {
+      const response = await adminService.getStudentById(student.id);
+      
+      if (response.data) {
+        const studentDetails: Student = {
+          ...response.data,
+          id: response.data.id || student.id,
+          name: response.data.name || `${response.data.firstName || ''} ${response.data.lastName || ''}`.trim() || 'Unknown',
+          class: response.data.class || student.class,
+          section: response.data.section || student.section,
+          status: response.data.status || 'Active',
+          attendance: response.data.attendance || 0,
+          email: response.data.email || '',
+          phone: response.data.phone || '',
+          rollNo: response.data.rollNo || '',
+        };
+        
+        setSelectedStudent(studentDetails);
+        setShowProfileDialog(true);
+      } else {
+        setSelectedStudent(student);
+        setShowProfileDialog(true);
+      }
+    } catch (error: any) {
+      console.error('Error fetching student details:', error);
+      toast.error('Failed to load student details. Showing cached data.');
+      setSelectedStudent(student);
+      setShowProfileDialog(true);
+    }
   };
 
   const handleExport = () => {
@@ -93,48 +187,198 @@ export function Students() {
     });
   };
 
-  const handleCloseDialog = () => {
-    setShowAddDialog(false);
-    setIsEditMode(false);
-    setEditingStudentId(null);
-    // Reset form when closing
-    setFirstName('');
-    setLastName('');
-    setRollNo('');
-    setDob('');
-    setSelectedClass('');
-    setSection('');
-    setEmail('');
-    setPhone('');
-    setParentPhone('');
-    setAddress('');
+  const handleCloseDialog = (open?: boolean) => {
+    try {
+      // Handle Dialog onOpenChange callback - only close if open is false
+      if (open === false || open === undefined) {
+        setShowAddDialog(false);
+        setIsEditMode(false);
+        setEditingStudentId(null);
+        // Reset form when closing
+        setFirstName('');
+        setLastName('');
+        setDob('');
+        setSelectedClass('');
+        setSectionId('');
+        setPhone('');
+        setParentPhone('');
+        setAddress('');
+        setClassUUID(null);
+        setAvailableSections([
+          { id: 'A', name: 'A' },
+          { id: 'B', name: 'B' },
+          { id: 'C', name: 'C' },
+          { id: 'D', name: 'D' },
+        ]);
+        setIsLoadingClassData(false);
+      }
+    } catch (error) {
+      console.error('Error closing dialog:', error);
+      // Force close on error
+      setShowAddDialog(false);
+    }
   };
+  
+  const handleCloseDialogDirect = () => {
+    // Direct close without callback parameter
+    try {
+      handleCloseDialog(false);
+    } catch (error) {
+      console.error('Error in handleCloseDialogDirect:', error);
+      setShowAddDialog(false);
+    }
+  };
+  
+  // Fetch class UUID and sections when class is selected
+  useEffect(() => {
+    // Only fetch when dialog is open and class is selected
+    if (!showAddDialog || !selectedClass || isEditMode) {
+      return;
+    }
+    
+    let isMounted = true;
+    let timeoutId: NodeJS.Timeout | null = null;
+    
+    const fetchClassData = async () => {
+      if (!isMounted || !showAddDialog) return;
+      
+      setIsLoadingClassData(true);
+      
+      try {
+        // Fetch class UUID immediately
+        const classInfo = await adminService.getClassByName(selectedClass).catch((err) => {
+          if (import.meta.env.DEV) {
+            console.warn('Class API not available:', err);
+          }
+          return null;
+        });
+        
+        if (!isMounted || !showAddDialog) return;
+        
+        if (classInfo && classInfo.uuid) {
+          setClassUUID(classInfo.uuid);
+          
+          if (import.meta.env.DEV) {
+            console.log('Class UUID fetched:', {
+              className: selectedClass,
+              classUUID: classInfo.uuid,
+            });
+          }
+          
+          // Fetch sections for this class
+          if (classInfo.id) {
+            const sections = await adminService.getSectionsByClass(classInfo.id).catch((err) => {
+              if (import.meta.env.DEV) {
+                console.warn('Sections API not available:', err);
+              }
+              return null;
+            });
+            
+            if (isMounted && showAddDialog) {
+              if (Array.isArray(sections) && sections.length > 0) {
+                // Use API sections with their UUIDs
+                const mappedSections = sections.map(s => ({ id: s.id, name: s.name }));
+                setAvailableSections(mappedSections);
+                
+                if (import.meta.env.DEV) {
+                  console.log('Sections loaded from API:', {
+                    count: mappedSections.length,
+                    sections: mappedSections,
+                  });
+                }
+              } else {
+                // If no sections from API, use default sections A, B, C, D
+                setAvailableSections([
+                  { id: 'A', name: 'A' },
+                  { id: 'B', name: 'B' },
+                  { id: 'C', name: 'C' },
+                  { id: 'D', name: 'D' },
+                ]);
+                if (import.meta.env.DEV) {
+                  console.warn('No sections from API, using defaults:', classInfo.id);
+                }
+              }
+            }
+          } else {
+            // If no classInfo.id, still set default sections
+            setAvailableSections([
+              { id: 'A', name: 'A' },
+              { id: 'B', name: 'B' },
+              { id: 'C', name: 'C' },
+              { id: 'D', name: 'D' },
+            ]);
+          }
+        } else {
+          // If classInfo not found, set default sections but keep trying
+          setAvailableSections([
+            { id: 'A', name: 'A' },
+            { id: 'B', name: 'B' },
+            { id: 'C', name: 'C' },
+            { id: 'D', name: 'D' },
+          ]);
+          if (import.meta.env.DEV) {
+            console.warn('Class info not found for:', selectedClass);
+          }
+        }
+      } catch (error: any) {
+        if (import.meta.env.DEV) {
+          console.error('Error fetching class data:', error);
+        }
+        // On error, use default sections A, B, C, D
+        setAvailableSections([
+          { id: 'A', name: 'A' },
+          { id: 'B', name: 'B' },
+          { id: 'C', name: 'C' },
+          { id: 'D', name: 'D' },
+        ]);
+      } finally {
+        if (isMounted) {
+          setIsLoadingClassData(false);
+        }
+      }
+    };
+    
+    // Fetch immediately when class is selected (no delay)
+    fetchClassData();
+    
+    return () => {
+      isMounted = false;
+      if (timeoutId) {
+        clearTimeout(timeoutId);
+      }
+    };
+  }, [selectedClass, showAddDialog, isEditMode]);
 
-  // Get unique classes from students
+  // Available classes - Grade 1 to Grade 10
   const availableClasses = useMemo(() => {
-    const classes = students.map(s => {
-      // Extract grade from class string (e.g., "Grade 10A" -> "Grade 10")
-      const match = s.class.match(/^(Grade \d+)/);
-      return match ? match[1] : s.class;
-    });
-    return Array.from(new Set(classes)).sort();
-  }, [students]);
+    return ['Grade 1', 'Grade 2', 'Grade 3', 'Grade 4', 'Grade 5', 'Grade 6', 
+            'Grade 7', 'Grade 8', 'Grade 9', 'Grade 10'];
+  }, []);
 
   // Filter students based on current view class, search and status filter
   const filteredStudents = useMemo(() => {
+    // Safety check - ensure students is an array
+    if (!Array.isArray(students) || students.length === 0) {
+      return [];
+    }
+
     let filtered = students;
 
     // First filter by current view class (always applied)
-    filtered = filtered.filter(s => s.class.startsWith(currentViewClass));
+    filtered = filtered.filter(s => {
+      if (!s.class) return false;
+      return s.class.startsWith(currentViewClass);
+    });
 
     // Search filter
     if (searchQuery) {
       const query = searchQuery.toLowerCase();
-      filtered = filtered.filter(s => 
-        s.name.toLowerCase().includes(query) ||
-        s.rollNo.toLowerCase().includes(query) ||
-        s.email.toLowerCase().includes(query)
-      );
+      filtered = filtered.filter(s => {
+        const name = (s.name || '').toLowerCase();
+        const rollNo = (s.rollNo || '').toLowerCase();
+        const phone = (s.phone || '').toLowerCase();
+        return name.includes(query) || rollNo.includes(query) || phone.includes(query);
+      });
     }
 
     // Status filter
@@ -145,81 +389,244 @@ export function Students() {
     return filtered;
   }, [students, currentViewClass, searchQuery, filterType, selectedFilterStatus]);
 
-  // Handle edit student
-  const handleEditStudent = (student: Student) => {
-    setIsEditMode(true);
-    setEditingStudentId(student.id);
-    setSelectedStudent(student);
-    
-    // Extract first and last name
-    const nameParts = student.name.split(' ');
-    setFirstName(nameParts[0] || '');
-    setLastName(nameParts.slice(1).join(' ') || '');
-    
-    // Extract class and section from class string (e.g., "Grade 10A" -> "Grade 10" and "A")
-    const classMatch = student.class.match(/^(Grade \d+)([A-Z])?$/);
-    if (classMatch) {
-      setSelectedClass(classMatch[1]);
-      setSection(classMatch[2] || '');
-    } else {
-      setSelectedClass(student.class);
-      setSection(student.section);
+  // Handle edit student - fetch from API first
+  const handleEditStudent = async (student: Student) => {
+    try {
+      const response = await adminService.getStudentById(student.id);
+      
+      if (response.data) {
+        const studentData = response.data;
+        
+        setIsEditMode(true);
+        setEditingStudentId(studentData.id || student.id);
+        setSelectedStudent(studentData);
+        
+        setFirstName(studentData.firstName || '');
+        setLastName(studentData.lastName || '');
+        
+        const studentClass = studentData.class || student.class;
+        const classMatch = studentClass.match(/^(Grade \d+)/);
+        if (classMatch) {
+          setSelectedClass(classMatch[1]);
+        } else {
+          setSelectedClass(studentClass);
+        }
+        
+        const sectionName = studentData.section || student.section;
+        if (sectionName && availableSections.length > 0) {
+          const section = availableSections.find(s => s.name === sectionName);
+          if (section) {
+            setSectionId(section.id);
+          }
+        }
+        
+        setPhone(studentData.phone || '');
+        setDob(studentData.dateOfBirth || '');
+        setParentPhone(studentData.parentPhone || '');
+        setAddress(studentData.address || '');
+        
+        setShowAddDialog(true);
+      } else {
+        // Fallback to local data
+        setIsEditMode(true);
+        setEditingStudentId(student.id.toString());
+        setSelectedStudent(student);
+        
+        const nameParts = (student.name || `${student.firstName || ''} ${student.lastName || ''}`.trim()).split(' ');
+        setFirstName(student.firstName || nameParts[0] || '');
+        setLastName(student.lastName || nameParts.slice(1).join(' ') || '');
+        
+        const classMatch = student.class.match(/^(Grade \d+)([A-Z])?$/);
+        if (classMatch) {
+          setSelectedClass(classMatch[1]);
+        } else {
+          setSelectedClass(student.class);
+        }
+        
+        setPhone(student.phone);
+        setDob(student.dateOfBirth || '');
+        setParentPhone(student.parentPhone || '');
+        setAddress(student.address || '');
+        
+        setShowAddDialog(true);
+      }
+    } catch (error: any) {
+      console.error('Error fetching student for edit:', error);
+      toast.error('Failed to load student data. Using cached data.');
+      
+      setIsEditMode(true);
+      setEditingStudentId(student.id.toString());
+      setSelectedStudent(student);
+      
+      const nameParts = (student.name || `${student.firstName || ''} ${student.lastName || ''}`.trim()).split(' ');
+      setFirstName(student.firstName || nameParts[0] || '');
+      setLastName(student.lastName || nameParts.slice(1).join(' ') || '');
+      
+      const classMatch = student.class.match(/^(Grade \d+)([A-Z])?$/);
+      if (classMatch) {
+        setSelectedClass(classMatch[1]);
+      } else {
+        setSelectedClass(student.class);
+      }
+      
+      setPhone(student.phone);
+      setDob(student.dateOfBirth || '');
+      setParentPhone(student.parentPhone || '');
+      setAddress(student.address || '');
+      
+      setShowAddDialog(true);
     }
-    
-    setRollNo(student.rollNo);
-    setEmail(student.email);
-    setPhone(student.phone);
-    setDob('');
-    setParentPhone('');
-    setAddress('');
-    
-    setShowAddDialog(true);
   };
 
-  // Handle update student
-  const handleUpdateStudent = () => {
+  // Handle delete student
+  const handleDeleteStudent = (student: Student) => {
+    setStudentToDelete(student);
+    setShowDeleteDialog(true);
+  };
+
+  const confirmDelete = async () => {
+    if (!studentToDelete) return;
+
+    setIsDeleting(true);
+    try {
+      await adminService.deleteStudent(studentToDelete.id);
+      
+      setStudents(students.filter(s => s.id !== studentToDelete.id));
+      toast.success(`Student "${studentToDelete.name}" deleted successfully`);
+      setShowDeleteDialog(false);
+      setStudentToDelete(null);
+    } catch (error: any) {
+      let errorMessage = 'Failed to delete student. Please try again.';
+      
+      if (error instanceof ApiException) {
+        errorMessage = getUserFriendlyError(error);
+      } else if (error?.response?.data?.message) {
+        errorMessage = error.response.data.message;
+      } else if (error?.message) {
+        errorMessage = error.message;
+      }
+      
+      toast.error(errorMessage);
+      console.error('Delete student error:', error);
+    } finally {
+      setIsDeleting(false);
+    }
+  };
+
+  // Handle update student - call API
+  const handleUpdateStudent = async () => {
     if (!editingStudentId) return;
 
-    // Validate required fields
-    if (!firstName || !lastName || !rollNo || !selectedClass || !section || !email || !phone) {
+    const missingFields: string[] = [];
+    if (!firstName || firstName.trim() === '') missingFields.push('First Name');
+    if (!lastName || lastName.trim() === '') missingFields.push('Last Name');
+    if (!dob || dob.trim() === '') missingFields.push('Date of Birth');
+    if (!selectedClass || selectedClass.trim() === '') missingFields.push('Class');
+    if (!sectionId || sectionId.trim() === '') missingFields.push('Section');
+    if (!phone || phone.trim() === '') missingFields.push('Phone');
+    if (!address || address.trim() === '') missingFields.push('Address');
+    
+    if (missingFields.length > 0) {
       toast.error('Please fill all required fields', {
-        description: 'First name, last name, roll number, class, section, email, and phone are required.',
+        description: `Missing: ${missingFields.join(', ')}`,
       });
       return;
     }
 
-    // Check if roll number already exists (excluding current student)
-    const rollNoExists = students.some(s => s.rollNo === rollNo && s.id !== editingStudentId);
-    if (rollNoExists) {
-      toast.error('Roll number already exists', {
-        description: 'Please use a different roll number.',
-      });
+    let finalClassUUID = classUUID;
+    if (!finalClassUUID && selectedClass) {
+      try {
+        const classInfo = await adminService.getClassByName(selectedClass);
+        finalClassUUID = classInfo.uuid;
+        setClassUUID(classInfo.uuid);
+      } catch (error) {
+        toast.error('Failed to load class information. Please try again.');
+        return;
+      }
+    }
+
+    if (!finalClassUUID) {
+      toast.error('Class information not loaded. Please try again.');
       return;
     }
 
-    // Update student
-    const formattedClass = `${selectedClass}${section}`;
-    const updatedStudent: Student = {
-      id: editingStudentId,
-      name: `${firstName} ${lastName}`,
-      rollNo: rollNo,
-      class: formattedClass,
-      section: section,
-      email: email,
-      phone: phone,
-      status: students.find(s => s.id === editingStudentId)?.status || 'Active',
-      attendance: students.find(s => s.id === editingStudentId)?.attendance || 0,
+    setIsAddingOrUpdating(true);
+    try {
+      const requestData: UpdateStudentRequest = {
+        firstName: firstName.trim(),
+        lastName: lastName.trim(),
+        dateOfBirth: dob,
+        address: address.trim(),
+        phone: phone.trim(),
+        sectionId: sectionId.trim(),
+        parentPhone: parentPhone?.trim() || undefined,
+      };
+
+      if (import.meta.env.DEV) {
+        console.log('Update Student Request:', {
+          studentId: editingStudentId,
+          requestData,
+          classUUID: finalClassUUID,
+        });
+      }
+
+      const response = await adminService.updateStudent(editingStudentId, requestData, finalClassUUID);
+
+      if (response.data) {
+        const updatedStudent: Student = {
+          ...response.data,
+          id: response.data.id || editingStudentId,
+          name: response.data.name || `${firstName} ${lastName}`,
+          class: response.data.class || selectedClass,
+          section: response.data.section || availableSections.find(s => s.id === sectionId)?.name || '',
+          status: response.data.status || 'Active',
+          attendance: response.data.attendance || 0,
+          email: response.data.email || '',
+          phone: response.data.phone || phone,
+          rollNo: response.data.rollNo || students.find(s => s.id === editingStudentId)?.rollNo || '',
     };
 
-    setStudents(students.map(s => s.id === editingStudentId ? updatedStudent : s));
-
-    // Show success toast
-    toast.success('Student updated successfully', {
-      description: `${updatedStudent.name} has been updated.`,
-    });
-
-    // Reset and close
-    handleCloseDialog();
+        setStudents(students.map(s => s.id === editingStudentId ? updatedStudent : s));
+        toast.success(`Student "${firstName} ${lastName}" updated successfully`);
+        
+        setShowAddDialog(false);
+        setIsEditMode(false);
+        setEditingStudentId(null);
+        handleCloseDialogDirect();
+        
+        // Refresh students list
+        await fetchStudents();
+      } else {
+        throw new Error('Invalid response from server');
+      }
+    } catch (error: any) {
+      let errorMessage = 'Failed to update student. Please try again.';
+      
+      if (error instanceof ApiException) {
+        errorMessage = getUserFriendlyError(error);
+      } else if (error?.response?.data?.message) {
+        errorMessage = error.response.data.message;
+      } else if (error?.response?.data?.error) {
+        errorMessage = error.response.data.error;
+      } else if (Array.isArray(error?.response?.data?.errors)) {
+        errorMessage = error.response.data.errors.join(', ');
+      } else if (error?.message) {
+        errorMessage = error.message;
+      }
+      
+      if (import.meta.env.DEV) {
+        console.error('Update student error:', {
+          error,
+          message: errorMessage,
+          response: error?.response,
+          data: error?.response?.data,
+        });
+      }
+      
+      toast.error(errorMessage);
+    } finally {
+      setIsAddingOrUpdating(false);
+    }
   };
 
   // Handle filter
@@ -237,7 +644,7 @@ export function Students() {
     toast.success('Filter cleared');
   };
 
-  const handleAddStudent = () => {
+  const handleAddStudent = async () => {
     // If in edit mode, call update instead
     if (isEditMode) {
       handleUpdateStudent();
@@ -245,56 +652,140 @@ export function Students() {
     }
 
     // Validate required fields
-    if (!firstName || !lastName || !rollNo || !selectedClass || !section || !email || !phone) {
+    if (!firstName || !lastName || !dob || !selectedClass || !sectionId || !phone || !address) {
       toast.error('Please fill all required fields', {
-        description: 'First name, last name, roll number, class, section, email, and phone are required.',
+        description: 'First name, last name, date of birth, class, section, phone, and address are required.',
       });
       return;
     }
 
-    // Check if roll number already exists
-    const rollNoExists = students.some(s => s.rollNo === rollNo);
-    if (rollNoExists) {
-      toast.error('Roll number already exists', {
-        description: 'Please use a different roll number.',
-      });
-      return;
-    }
-
-    // Create new student object
-    const formattedClass = `${selectedClass}${section}`; // e.g., "Grade 10A"
-    const newStudent: Student = {
-      id: students.length > 0 ? Math.max(...students.map(s => s.id)) + 1 : 1,
-      name: `${firstName} ${lastName}`,
-      rollNo: rollNo,
-      class: formattedClass,
-      section: section,
-      email: email,
-      phone: phone,
-      status: 'Active',
-      attendance: 0, // Default attendance for new student
-    };
-
-    // Add student to list
-    setStudents([...students, newStudent]);
-
-    // Show success toast with properly aligned icon and text
-    toast.success(
-      <div className="flex items-start gap-3 w-full">
-        <CheckCircle2 className="w-5 h-5 text-green-600 dark:text-green-400 flex-shrink-0 mt-0.5" />
-        <div className="flex flex-col gap-1 flex-1 min-w-0">
-          <span className="font-semibold text-sm text-gray-900 dark:text-white leading-tight">Student added successfully</span>
-          <span className="text-xs text-gray-600 dark:text-gray-400 leading-tight">{newStudent.name} has been added to the student list.</span>
-        </div>
-      </div>,
-      {
-        duration: 3000,
-        icon: null, // Disable default icon to use our custom icon
+    // Check if class UUID is available - if not, try to fetch it
+    let finalClassUUID = classUUID;
+    if (!finalClassUUID) {
+      try {
+        const classInfo = await adminService.getClassByName(selectedClass);
+        if (classInfo && classInfo.uuid) {
+          finalClassUUID = classInfo.uuid;
+          setClassUUID(classInfo.uuid);
+        } else {
+          toast.error('Class information not loaded. Please wait or try again.');
+          return;
+        }
+      } catch (error) {
+        toast.error('Failed to load class information. Please try again.');
+        return;
       }
-    );
+    }
 
-    // Reset form
-    handleCloseDialog();
+    // Final validation before API call
+    if (!finalClassUUID || finalClassUUID.trim() === '') {
+      toast.error('Class UUID is missing. Please try again.');
+      return;
+    }
+    
+    if (!sectionId || sectionId.trim() === '') {
+      toast.error('Section is required. Please select a section.');
+      return;
+    }
+
+    setIsAddingOrUpdating(true);
+    try {
+      // Prepare request data (without email and rollNo - auto-generated by backend)
+      const requestData: AddStudentRequest = {
+        firstName: firstName.trim(),
+        lastName: lastName.trim(),
+        dateOfBirth: dob,
+        address: address.trim(),
+        phone: phone.trim(),
+        sectionId: sectionId.trim(),
+        parentPhone: parentPhone?.trim() || undefined,
+      };
+
+      if (import.meta.env.DEV) {
+        console.log('Add Student Request:', {
+          requestData,
+          classUUID: finalClassUUID,
+          allFields: {
+            firstName: requestData.firstName,
+            lastName: requestData.lastName,
+            dateOfBirth: requestData.dateOfBirth,
+            address: requestData.address,
+            phone: requestData.phone,
+            sectionId: requestData.sectionId,
+            parentPhone: requestData.parentPhone,
+          },
+        });
+      }
+
+      // Call API to add student with class UUID in header
+      const response = await adminService.addStudent(requestData, finalClassUUID);
+
+      if (response.data) {
+        // Show success toast
+        toast.success(
+          <div className="flex items-start gap-3 w-full">
+            <CheckCircle2 className="w-5 h-5 text-green-600 dark:text-green-400 flex-shrink-0 mt-0.5" />
+            <div className="flex flex-col gap-1 flex-1 min-w-0">
+              <span className="font-semibold text-sm text-gray-900 dark:text-white leading-tight">Student added successfully</span>
+              <span className="text-xs text-gray-600 dark:text-gray-400 leading-tight">
+                {response.data.name || `${firstName} ${lastName}`} has been added to the student list.
+              </span>
+            </div>
+          </div>,
+          {
+            duration: 3000,
+            icon: null, // Disable default icon to use our custom icon
+          }
+        );
+
+        // Refresh students list
+        await fetchStudents();
+        
+        // Reset form
+        handleCloseDialogDirect();
+      } else {
+        throw new Error('Invalid response from server');
+      }
+    } catch (error: any) {
+      let errorMessage = 'Failed to add student. Please try again.';
+      
+      // Parse error message from various possible locations
+      if (error instanceof ApiException) {
+        errorMessage = getUserFriendlyError(error);
+      } else if (error?.response?.data?.message) {
+        errorMessage = error.response.data.message;
+      } else if (error?.response?.data?.error) {
+        errorMessage = error.response.data.error;
+      } else if (Array.isArray(error?.response?.data?.errors)) {
+        errorMessage = error.response.data.errors.join(', ');
+      } else if (error?.message) {
+        errorMessage = error.message;
+      } else if (typeof error === 'string') {
+        errorMessage = error;
+      }
+      
+      if (import.meta.env.DEV) {
+        console.error('Add student error:', {
+          error,
+          message: errorMessage,
+          response: error?.response,
+          data: error?.response?.data,
+          requestData: {
+            firstName,
+            lastName,
+            dob,
+            address,
+            phone,
+            sectionId,
+            classUUID: finalClassUUID,
+          },
+        });
+      }
+      
+      toast.error(errorMessage);
+    } finally {
+      setIsAddingOrUpdating(false);
+    }
   };
 
   return (
@@ -312,22 +803,71 @@ export function Students() {
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                {availableClasses.map((cls) => (
-                  <SelectItem key={cls} value={cls}>
-                    {cls}
-                  </SelectItem>
-                ))}
+                {availableClasses && availableClasses.length > 0 ? (
+                  availableClasses.map((cls) => (
+                    <SelectItem key={cls} value={cls}>
+                      {cls}
+                    </SelectItem>
+                  ))
+                ) : (
+                  // Fallback options if no classes available
+                  ['Grade 1', 'Grade 2', 'Grade 3', 'Grade 4', 'Grade 5', 'Grade 6', 
+                   'Grade 7', 'Grade 8', 'Grade 9', 'Grade 10', 'Grade 11', 'Grade 12'].map((cls) => (
+                    <SelectItem key={cls} value={cls}>
+                      {cls}
+                    </SelectItem>
+                  ))
+                )}
               </SelectContent>
             </Select>
           </div>
           <Button 
-            onClick={() => {
+            onClick={async () => {
+              // Reset form fields
               setIsEditMode(false);
               setEditingStudentId(null);
-              handleCloseDialog();
-              // Pre-fill class with current view class
+              setFirstName('');
+              setLastName('');
+              setDob('');
+              setSectionId('');
+              setPhone('');
+              setParentPhone('');
+              setAddress('');
+              setClassUUID(null);
+              setAvailableSections([
+                { id: 'A', name: 'A' },
+                { id: 'B', name: 'B' },
+                { id: 'C', name: 'C' },
+                { id: 'D', name: 'D' },
+              ]);
+              setIsLoadingClassData(false);
+              
+              // Set class first
               setSelectedClass(currentViewClass);
+              
+              // Open dialog
               setShowAddDialog(true);
+              
+              // Immediately try to fetch class UUID
+              try {
+                const classInfo = await adminService.getClassByName(currentViewClass);
+                if (classInfo && classInfo.uuid) {
+                  setClassUUID(classInfo.uuid);
+                  
+                  // Fetch sections
+                  if (classInfo.id) {
+                    const sections = await adminService.getSectionsByClass(classInfo.id).catch(() => null);
+                    if (Array.isArray(sections) && sections.length > 0) {
+                      setAvailableSections(sections.map(s => ({ id: s.id, name: s.name })));
+                    }
+                  }
+                }
+              } catch (error) {
+                if (import.meta.env.DEV) {
+                  console.warn('Failed to pre-fetch class data:', error);
+                }
+                // Continue anyway - useEffect will retry
+              }
             }} 
             className="bg-[#0A66C2] hover:bg-[#0052A3]"
           >
@@ -353,7 +893,7 @@ export function Students() {
           <div className="relative flex-1">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
             <Input 
-              placeholder="Search by name, roll no, or email..." 
+              placeholder="Search by name, roll no, or phone..." 
               className="pl-10" 
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
@@ -390,45 +930,64 @@ export function Students() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {filteredStudents.length === 0 ? (
+              {isLoading ? (
                 <TableRow>
                   <TableCell colSpan={7} className="text-center py-8 text-gray-500 dark:text-gray-400">
-                    No students found
+                    <div className="flex items-center justify-center gap-2">
+                      <div className="w-4 h-4 border-2 border-gray-400 border-t-transparent rounded-full animate-spin"></div>
+                      Loading students...
+                    </div>
+                  </TableCell>
+                </TableRow>
+              ) : filteredStudents.length === 0 ? (
+                <TableRow>
+                  <TableCell colSpan={7} className="text-center py-8 text-gray-500 dark:text-gray-400">
+                    No students found for {currentViewClass}
                   </TableCell>
                 </TableRow>
               ) : (
-                filteredStudents.map((student) => (
-                <TableRow key={student.id} className="hover:bg-gray-50 dark:hover:bg-gray-800">
-                  <TableCell>
-                    <div className="flex items-center gap-3">
-                      <Avatar className="w-10 h-10">
-                        <AvatarFallback className="bg-gradient-to-br from-[#0A66C2] to-[#0052A3] text-white">
-                          {student.name.split(' ').map(n => n[0]).join('')}
-                        </AvatarFallback>
-                      </Avatar>
-                      <div>
-                        <p className="text-sm text-gray-900 dark:text-white">{student.name}</p>
-                        <p className="text-xs text-gray-500 dark:text-gray-400">{student.email}</p>
-                      </div>
-                    </div>
-                  </TableCell>
-                  <TableCell className="text-gray-700 dark:text-gray-300">{student.rollNo}</TableCell>
-                  <TableCell className="text-gray-700 dark:text-gray-300">{student.class}</TableCell>
-                  <TableCell className="text-gray-700 dark:text-gray-300">{student.phone}</TableCell>
-                  <TableCell>
-                    <div className="flex items-center gap-2">
-                      <div className="flex-1 h-2 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden max-w-[60px]">
-                        <div
-                          className="h-full bg-[#0A66C2]"
-                          style={{ width: `${student.attendance}%` }}
-                        ></div>
-                      </div>
-                      <span className="text-sm text-gray-700 dark:text-gray-300">{student.attendance}%</span>
-                    </div>
-                  </TableCell>
-                  <TableCell>
-                    <Switch
-                      checked={student.status === 'Active'}
+                filteredStudents.map((student) => {
+                  // Safety checks for student data
+                  const studentName = student.name || 'Unknown';
+                  const studentEmail = student.email || '';
+                  const studentRollNo = student.rollNo || 'N/A';
+                  const studentClass = student.class || currentViewClass;
+                  const studentPhone = student.phone || 'N/A';
+                  const studentAttendance = typeof student.attendance === 'number' ? student.attendance : 0;
+                  const initials = studentName.split(' ').map((n: string) => n[0]).join('').toUpperCase().slice(0, 2) || 'ST';
+                  
+                  return (
+                    <TableRow key={student.id || Math.random()} className="hover:bg-gray-50 dark:hover:bg-gray-800">
+                      <TableCell>
+                        <div className="flex items-center gap-3">
+                          <Avatar className="w-10 h-10">
+                            <AvatarFallback className="bg-gradient-to-br from-[#0A66C2] to-[#0052A3] text-white">
+                              {initials}
+                            </AvatarFallback>
+                          </Avatar>
+                          <div>
+                            <p className="text-sm text-gray-900 dark:text-white">{studentName}</p>
+                            <p className="text-xs text-gray-500 dark:text-gray-400">{studentEmail}</p>
+                          </div>
+                        </div>
+                      </TableCell>
+                      <TableCell className="text-gray-700 dark:text-gray-300">{studentRollNo}</TableCell>
+                      <TableCell className="text-gray-700 dark:text-gray-300">{studentClass}</TableCell>
+                      <TableCell className="text-gray-700 dark:text-gray-300">{studentPhone}</TableCell>
+                      <TableCell>
+                        <div className="flex items-center gap-2">
+                          <div className="flex-1 h-2 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden max-w-[60px]">
+                            <div
+                              className="h-full bg-[#0A66C2]"
+                              style={{ width: `${Math.min(100, Math.max(0, studentAttendance))}%` }}
+                            ></div>
+                          </div>
+                          <span className="text-sm text-gray-700 dark:text-gray-300">{studentAttendance}%</span>
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        <Switch
+                          checked={student.status === 'Active'}
                       onCheckedChange={(checked) => {
                         const newStatus = checked ? 'Active' : 'Inactive';
                         setStudents(students.map(s => 
@@ -439,7 +998,7 @@ export function Students() {
                             <CheckCircle2 className="w-5 h-5 text-green-600 dark:text-green-400 flex-shrink-0 mt-0.5" />
                             <div className="flex flex-col gap-1 flex-1 min-w-0">
                               <span className="font-semibold text-sm text-gray-900 dark:text-white leading-tight">Status updated</span>
-                              <span className="text-xs text-gray-600 dark:text-gray-400 leading-tight">{student.name} is now {newStatus.toLowerCase()}.</span>
+                              <span className="text-xs text-gray-600 dark:text-gray-400 leading-tight">{studentName} is now {newStatus.toLowerCase()}.</span>
                             </div>
                           </div>,
                           {
@@ -467,7 +1026,10 @@ export function Students() {
                           <Edit className="w-4 h-4 mr-2" />
                           Edit
                         </DropdownMenuItem>
-                        <DropdownMenuItem className="text-red-600">
+                        <DropdownMenuItem 
+                          className="text-red-600"
+                          onClick={() => handleDeleteStudent(student)}
+                        >
                           <Trash2 className="w-4 h-4 mr-2" />
                           Delete
                         </DropdownMenuItem>
@@ -475,14 +1037,19 @@ export function Students() {
                     </DropdownMenu>
                   </TableCell>
                 </TableRow>
-                ))
+                  );
+                })
               )}
             </TableBody>
           </Table>
         </div>
       </Card>
 
-      <Dialog open={showAddDialog} onOpenChange={handleCloseDialog}>
+      <Dialog open={showAddDialog} onOpenChange={(open) => {
+        if (open === false) {
+          handleCloseDialog(false);
+        }
+      }}>
         <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>{isEditMode ? 'Edit Student' : 'Add New Student'}</DialogTitle>
@@ -508,21 +1075,23 @@ export function Students() {
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="rollNo">Roll Number *</Label>
-              <Input 
-                id="rollNo" 
-                placeholder="Enter roll number" 
-                value={rollNo}
-                onChange={(e) => setRollNo(e.target.value)}
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="dob">Date of Birth</Label>
+              <Label htmlFor="dob">Date of Birth *</Label>
               <Input 
                 id="dob" 
                 type="date" 
                 value={dob}
                 onChange={(e) => setDob(e.target.value)}
+                required
+              />
+            </div>
+            <div className="space-y-2 col-span-2">
+              <Label htmlFor="address">Address *</Label>
+              <Input 
+                id="address" 
+                placeholder="Enter full address" 
+                value={address}
+                onChange={(e) => setAddress(e.target.value)}
+                required
               />
             </div>
             <div className="space-y-2">
@@ -546,8 +1115,6 @@ export function Students() {
                   <SelectItem value="Grade 8">Grade 8</SelectItem>
                   <SelectItem value="Grade 9">Grade 9</SelectItem>
                   <SelectItem value="Grade 10">Grade 10</SelectItem>
-                  <SelectItem value="Grade 11">Grade 11</SelectItem>
-                  <SelectItem value="Grade 12">Grade 12</SelectItem>
                 </SelectContent>
               </Select>
               {!isEditMode && showAddDialog && (
@@ -558,27 +1125,52 @@ export function Students() {
             </div>
             <div className="space-y-2">
               <Label htmlFor="section">Section *</Label>
-              <Select value={section} onValueChange={setSection}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Select section" />
+              <Select 
+                value={sectionId || ''} 
+                onValueChange={(value) => {
+                  // Set sectionId to the selected section's UUID
+                  if (value && value.trim() !== '') {
+                    setSectionId(value);
+                    if (import.meta.env.DEV) {
+                      console.log('Section selected:', {
+                        sectionId: value,
+                        sectionName: availableSections.find(s => s.id === value)?.name,
+                      });
+                    }
+                  } else {
+                    setSectionId('');
+                  }
+                }}
+                disabled={isLoadingClassData}
+              >
+                <SelectTrigger className={isLoadingClassData ? "bg-gray-100 dark:bg-gray-800 cursor-not-allowed" : ""}>
+                  <SelectValue placeholder={isLoadingClassData ? "Loading sections..." : availableSections.length === 0 ? "No sections available" : "Select section"} />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="A">A</SelectItem>
-                  <SelectItem value="B">B</SelectItem>
-                  <SelectItem value="C">C</SelectItem>
-                  <SelectItem value="D">D</SelectItem>
+                  {availableSections.length > 0 ? (
+                    availableSections.map((section) => {
+                      // Ensure section.id is not empty
+                      if (!section.id || section.id.trim() === '') {
+                        return null;
+                      }
+                      return (
+                        <SelectItem key={section.id} value={section.id}>
+                          {section.name || section.id}
+                        </SelectItem>
+                      );
+                    }).filter(Boolean)
+                  ) : (
+                    <div className="px-2 py-1.5 text-sm text-gray-500 dark:text-gray-400">
+                      {isLoadingClassData ? "Loading sections..." : "No sections available"}
+                    </div>
+                  )}
                 </SelectContent>
               </Select>
-            </div>
-            <div className="space-y-2 col-span-2">
-              <Label htmlFor="email">Email *</Label>
-              <Input 
-                id="email" 
-                type="email" 
-                placeholder="student@school.com" 
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-              />
+              {sectionId && (
+                <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                  Selected: {availableSections.find(s => s.id === sectionId)?.name || sectionId}
+                </p>
+              )}
             </div>
             <div className="space-y-2">
               <Label htmlFor="phone">Phone *</Label>
@@ -600,18 +1192,9 @@ export function Students() {
                 onChange={(e) => setParentPhone(e.target.value)}
               />
             </div>
-            <div className="space-y-2 col-span-2">
-              <Label htmlFor="address">Address</Label>
-              <Input 
-                id="address" 
-                placeholder="Enter full address" 
-                value={address}
-                onChange={(e) => setAddress(e.target.value)}
-              />
-            </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={handleCloseDialog}>Cancel</Button>
+            <Button variant="outline" onClick={handleCloseDialogDirect}>Cancel</Button>
             <Button className="bg-[#0A66C2] hover:bg-[#0052A3]" onClick={handleAddStudent}>
               {isEditMode ? 'Update Student' : 'Add Student'}
             </Button>
@@ -734,6 +1317,34 @@ export function Students() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Delete Confirmation Dialog */}
+      <AlertDialog open={showDeleteDialog} onOpenChange={setShowDeleteDialog}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Are you sure?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This action cannot be undone. This will permanently delete the student
+              <span className="font-semibold text-gray-900 dark:text-white">
+                {' '}"{studentToDelete?.name}"
+              </span>
+              {' '}and all their associated data including attendance, grades, and records.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={() => setStudentToDelete(null)} disabled={isDeleting}>
+              Cancel
+            </AlertDialogCancel>
+            <AlertDialogAction
+              onClick={confirmDelete}
+              className="bg-red-600 hover:bg-red-700 text-white"
+              disabled={isDeleting}
+            >
+              {isDeleting ? 'Deleting...' : 'Delete'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

@@ -20,6 +20,7 @@ interface HeaderProps {
   onMenuToggle: () => void;
   onSwitchUser: (type: 'admin' | 'teacher' | 'student') => void;
   onLogout: () => void;
+  onProfileSettings?: () => void;
 }
 
 export function Header({ 
@@ -30,7 +31,8 @@ export function Header({
   onThemeToggle, 
   onMenuToggle,
   onSwitchUser,
-  onLogout 
+  onLogout,
+  onProfileSettings,
 }: HeaderProps) {
   const notifications = [
     { id: 1, title: 'New Assignment Posted', message: 'Mathematics homework due Friday', time: '5 min ago', unread: true },
@@ -126,7 +128,7 @@ export function Header({
           <DropdownMenuContent align="end" className="w-56">
             <DropdownMenuLabel>My Account</DropdownMenuLabel>
             <DropdownMenuSeparator />
-            <DropdownMenuItem className="cursor-pointer">
+            <DropdownMenuItem className="cursor-pointer" onClick={onProfileSettings}>
               <UserCircle className="w-4 h-4 mr-2" />
               Profile Settings
             </DropdownMenuItem>
