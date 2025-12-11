@@ -1,127 +1,77 @@
 import { useState } from 'react';
-import { Award, TrendingUp, TrendingDown, Download, Eye, BookOpen } from 'lucide-react';
+import { Award, TrendingUp, TrendingDown, Download, Eye, BookOpen, RefreshCw, Loader2 } from 'lucide-react';
 import { Card } from '../ui/card';
 import { Button } from '../ui/button';
 import { Badge } from '../ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
 import { Progress } from '../ui/progress';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '../ui/tabs';
+import { Skeleton } from '../ui/skeleton';
+import { 
+  useGrades, 
+  usePerformanceOverview, 
+  useSubjectPerformance, 
+  useGradeDistribution,
+  useExamReports,
+  useDownloadReportCard 
+} from '../../hooks/useStudentData';
 
-interface SubjectGrade {
-  subject: string;
-  assignments: number;
-  quizzes: number;
-  midterm: number;
-  final: number;
-  attendance: number;
-  total: number;
-  grade: string;
-  teacher: string;
-  trend: 'up' | 'down' | 'stable';
+// Skeleton loader
+function GradesSkeleton() {
+  return (
+    <div className="space-y-6">
+      <div className="flex items-center justify-between">
+        <div>
+          <Skeleton className="h-8 w-36 mb-2" />
+          <Skeleton className="h-4 w-64" />
+        </div>
+        <div className="flex gap-2">
+          <Skeleton className="h-10 w-40" />
+          <Skeleton className="h-10 w-40" />
+        </div>
+      </div>
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+        {[1, 2, 3, 4].map((i) => (
+          <Skeleton key={i} className="h-28" />
+        ))}
+      </div>
+      <Skeleton className="h-96" />
+    </div>
+  );
 }
-
-const mockGrades: SubjectGrade[] = [
-  {
-    subject: 'Mathematics',
-    assignments: 85,
-    quizzes: 88,
-    midterm: 82,
-    final: 0,
-    attendance: 95,
-    total: 87,
-    grade: 'A-',
-    teacher: 'Dr. Sarah Mitchell',
-    trend: 'up'
-  },
-  {
-    subject: 'Physics',
-    assignments: 78,
-    quizzes: 82,
-    midterm: 76,
-    final: 0,
-    attendance: 92,
-    total: 80,
-    grade: 'B+',
-    teacher: 'Prof. Michael Chen',
-    trend: 'stable'
-  },
-  {
-    subject: 'Chemistry',
-    assignments: 92,
-    quizzes: 90,
-    midterm: 88,
-    final: 0,
-    attendance: 98,
-    total: 91,
-    grade: 'A',
-    teacher: 'Dr. Robert Lee',
-    trend: 'up'
-  },
-  {
-    subject: 'English',
-    assignments: 88,
-    quizzes: 85,
-    midterm: 90,
-    final: 0,
-    attendance: 93,
-    total: 89,
-    grade: 'A',
-    teacher: 'Ms. Emma Wilson',
-    trend: 'up'
-  },
-  {
-    subject: 'History',
-    assignments: 82,
-    quizzes: 80,
-    midterm: 78,
-    final: 0,
-    attendance: 90,
-    total: 81,
-    grade: 'B+',
-    teacher: 'Ms. Jennifer Brown',
-    trend: 'down'
-  },
-  {
-    subject: 'Biology',
-    assignments: 90,
-    quizzes: 88,
-    midterm: 92,
-    final: 0,
-    attendance: 96,
-    total: 91,
-    grade: 'A',
-    teacher: 'Dr. Lisa Wang',
-    trend: 'up'
-  },
-];
-
-const termReports = [
-  {
-    term: 'Term 1 - 2024',
-    gpa: 3.7,
-    percentage: 88,
-    rank: 5,
-    totalStudents: 120,
-    date: '2024-03-15'
-  },
-  {
-    term: 'Term 2 - 2024',
-    gpa: 3.8,
-    percentage: 89,
-    rank: 4,
-    totalStudents: 120,
-    date: '2024-07-20'
-  },
-];
 
 export function StudentGrades() {
   const [selectedTerm, setSelectedTerm] = useState('current');
 
+  // API Hooks - Based on student-panel-apis.json
+  // PROFILE_05: /student/grades
+  const { data: grades, loading: gradesLoading, error: gradesError, refetch: refetchGrades } = useGrades();
+  
+  // EXAM_05: /student/exams/performance/overview
+  const { data: performanceOverview, loading: performanceLoading } = usePerformanceOverview();
+  
+  // EXAM_06: /student/exams/performance/subjects
+  const { data: subjectPerformance, loading: subjectLoading } = useSubjectPerformance();
+  
+  // EXAM_07: /student/exams/performance/distribution
+  const { data: gradeDistribution, loading: distributionLoading } = useGradeDistribution();
+  
+  // EXAM_08: /student/exams/reports
+  const { data: examReports, loading: reportsLoading } = useExamReports();
+  
+  // EXAM_09: Download Report Card
+  const { download: downloadReportCard, loading: downloadLoading } = useDownloadReportCard();
+
+  const loading = gradesLoading || performanceLoading || subjectLoading;
+
+  // Calculate stats
   const overallStats = {
-    gpa: (mockGrades.reduce((sum, g) => sum + g.total, 0) / mockGrades.length / 25).toFixed(2),
-    avgPercentage: Math.round(mockGrades.reduce((sum, g) => sum + g.total, 0) / mockGrades.length),
-    aGrades: mockGrades.filter(g => g.grade.startsWith('A')).length,
-    improving: mockGrades.filter(g => g.trend === 'up').length,
+    gpa: performanceOverview?.currentGPA?.toFixed(2) || grades?.gpa?.toFixed(2) || '0.00',
+    avgPercentage: subjectPerformance ? 
+      Math.round(subjectPerformance.reduce((sum, g) => sum + g.total, 0) / subjectPerformance.length) : 0,
+    aGrades: subjectPerformance?.filter(g => g.grade.startsWith('A')).length || 0,
+    improving: subjectPerformance?.filter(g => g.trend === 'UP').length || 0,
+    rank: performanceOverview?.rank,
+    totalStudents: performanceOverview?.totalStudents,
   };
 
   const getGradeColor = (grade: string) => {
@@ -132,6 +82,14 @@ export function StudentGrades() {
     return 'bg-red-100 text-red-700 border-red-300 dark:bg-red-900/20 dark:text-red-400';
   };
 
+  const handleDownloadReport = async (examId: string) => {
+    await downloadReportCard(examId);
+  };
+
+  if (loading) {
+    return <GradesSkeleton />;
+  }
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -141,16 +99,28 @@ export function StudentGrades() {
           <p className="text-gray-600 dark:text-gray-400">
             View your academic performance and progress
           </p>
+          {gradesError && (
+            <p className="text-sm text-amber-600 dark:text-amber-400 mt-1">
+              Unable to load grades data. Please try again.
+            </p>
+          )}
         </div>
         <div className="flex gap-2">
+          <Button variant="outline" onClick={() => refetchGrades()}>
+            <RefreshCw className="w-4 h-4 mr-2" />
+            Refresh
+          </Button>
           <Select value={selectedTerm} onValueChange={setSelectedTerm}>
             <SelectTrigger className="w-48">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="current">Current Term</SelectItem>
-              <SelectItem value="term1">Term 1 - 2024</SelectItem>
-              <SelectItem value="term2">Term 2 - 2024</SelectItem>
+              {examReports?.map((report) => (
+                <SelectItem key={report.examId} value={report.examId}>
+                  {report.examName}
+                </SelectItem>
+              ))}
             </SelectContent>
           </Select>
           <Button variant="outline">
@@ -167,6 +137,11 @@ export function StudentGrades() {
             <div>
               <p className="text-sm text-blue-700 dark:text-blue-300 mb-1">Current GPA</p>
               <p className="text-3xl text-blue-900 dark:text-blue-100">{overallStats.gpa}</p>
+              {overallStats.rank && (
+                <p className="text-xs text-blue-600 dark:text-blue-400 mt-1">
+                  Rank: {overallStats.rank}/{overallStats.totalStudents}
+                </p>
+              )}
             </div>
             <div className="w-12 h-12 rounded-lg bg-blue-600 flex items-center justify-center">
               <Award className="w-6 h-6 text-white" />
@@ -220,85 +195,68 @@ export function StudentGrades() {
           <table className="w-full">
             <thead className="bg-gray-50 dark:bg-gray-900 border-b border-gray-200 dark:border-gray-700">
               <tr>
-                <th className="px-6 py-4 text-left text-xs text-gray-600 dark:text-gray-400 uppercase">
-                  Subject
-                </th>
-                <th className="px-6 py-4 text-center text-xs text-gray-600 dark:text-gray-400 uppercase">
-                  Assignments
-                </th>
-                <th className="px-6 py-4 text-center text-xs text-gray-600 dark:text-gray-400 uppercase">
-                  Quizzes
-                </th>
-                <th className="px-6 py-4 text-center text-xs text-gray-600 dark:text-gray-400 uppercase">
-                  Midterm
-                </th>
-                <th className="px-6 py-4 text-center text-xs text-gray-600 dark:text-gray-400 uppercase">
-                  Attendance
-                </th>
-                <th className="px-6 py-4 text-center text-xs text-gray-600 dark:text-gray-400 uppercase">
-                  Total
-                </th>
-                <th className="px-6 py-4 text-center text-xs text-gray-600 dark:text-gray-400 uppercase">
-                  Grade
-                </th>
-                <th className="px-6 py-4 text-center text-xs text-gray-600 dark:text-gray-400 uppercase">
-                  Trend
-                </th>
-                <th className="px-6 py-4 text-right text-xs text-gray-600 dark:text-gray-400 uppercase">
-                  Actions
-                </th>
+                <th className="px-6 py-4 text-left text-xs text-gray-600 dark:text-gray-400 uppercase">Subject</th>
+                <th className="px-6 py-4 text-center text-xs text-gray-600 dark:text-gray-400 uppercase">Assignments</th>
+                <th className="px-6 py-4 text-center text-xs text-gray-600 dark:text-gray-400 uppercase">Quizzes</th>
+                <th className="px-6 py-4 text-center text-xs text-gray-600 dark:text-gray-400 uppercase">Midterm</th>
+                <th className="px-6 py-4 text-center text-xs text-gray-600 dark:text-gray-400 uppercase">Total</th>
+                <th className="px-6 py-4 text-center text-xs text-gray-600 dark:text-gray-400 uppercase">Grade</th>
+                <th className="px-6 py-4 text-center text-xs text-gray-600 dark:text-gray-400 uppercase">Trend</th>
+                <th className="px-6 py-4 text-right text-xs text-gray-600 dark:text-gray-400 uppercase">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
-              {mockGrades.map((grade) => (
-                <tr key={grade.subject} className="hover:bg-gray-50 dark:hover:bg-gray-900/50">
-                  <td className="px-6 py-4">
-                    <div className="flex items-center gap-3">
-                      <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-blue-500 to-purple-500 flex items-center justify-center">
-                        <BookOpen className="w-5 h-5 text-white" />
+              {subjectPerformance && subjectPerformance.length > 0 ? (
+                subjectPerformance.map((grade) => (
+                  <tr key={grade.subject.id} className="hover:bg-gray-50 dark:hover:bg-gray-900/50">
+                    <td className="px-6 py-4">
+                      <div className="flex items-center gap-3">
+                        <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-blue-500 to-purple-500 flex items-center justify-center">
+                          <BookOpen className="w-5 h-5 text-white" />
+                        </div>
+                        <div>
+                          <p className="text-sm text-gray-900 dark:text-white">{grade.subject.name}</p>
+                          <p className="text-xs text-gray-500 dark:text-gray-400">{grade.subject.teacher}</p>
+                        </div>
                       </div>
-                      <div>
-                        <p className="text-sm text-gray-900 dark:text-white">{grade.subject}</p>
-                        <p className="text-xs text-gray-500 dark:text-gray-400">{grade.teacher}</p>
-                      </div>
-                    </div>
-                  </td>
-                  <td className="px-6 py-4 text-center">
-                    <span className="text-sm text-gray-900 dark:text-white">{grade.assignments}%</span>
-                  </td>
-                  <td className="px-6 py-4 text-center">
-                    <span className="text-sm text-gray-900 dark:text-white">{grade.quizzes}%</span>
-                  </td>
-                  <td className="px-6 py-4 text-center">
-                    <span className="text-sm text-gray-900 dark:text-white">{grade.midterm}%</span>
-                  </td>
-                  <td className="px-6 py-4">
-                    <div className="flex items-center gap-2 justify-center">
-                      <Progress value={grade.attendance} className="w-16" />
-                      <span className="text-sm text-gray-900 dark:text-white">{grade.attendance}%</span>
-                    </div>
-                  </td>
-                  <td className="px-6 py-4 text-center">
-                    <span className="text-sm text-gray-900 dark:text-white">{grade.total}%</span>
-                  </td>
-                  <td className="px-6 py-4 text-center">
-                    <Badge variant="outline" className={getGradeColor(grade.grade)}>
-                      {grade.grade}
-                    </Badge>
-                  </td>
-                  <td className="px-6 py-4 text-center">
-                    {grade.trend === 'up' && <TrendingUp className="w-5 h-5 text-green-600 mx-auto" />}
-                    {grade.trend === 'down' && <TrendingDown className="w-5 h-5 text-red-600 mx-auto" />}
-                    {grade.trend === 'stable' && <div className="w-5 h-0.5 bg-gray-400 mx-auto" />}
-                  </td>
-                  <td className="px-6 py-4 text-right">
-                    <Button size="sm" variant="outline">
-                      <Eye className="w-4 h-4 mr-2" />
-                      Details
-                    </Button>
+                    </td>
+                    <td className="px-6 py-4 text-center">
+                      <span className="text-sm text-gray-900 dark:text-white">{grade.assignments}%</span>
+                    </td>
+                    <td className="px-6 py-4 text-center">
+                      <span className="text-sm text-gray-900 dark:text-white">{grade.quizzes}%</span>
+                    </td>
+                    <td className="px-6 py-4 text-center">
+                      <span className="text-sm text-gray-900 dark:text-white">{grade.midterm}%</span>
+                    </td>
+                    <td className="px-6 py-4 text-center">
+                      <span className="text-sm text-gray-900 dark:text-white">{grade.total}%</span>
+                    </td>
+                    <td className="px-6 py-4 text-center">
+                      <Badge variant="outline" className={getGradeColor(grade.grade)}>
+                        {grade.grade}
+                      </Badge>
+                    </td>
+                    <td className="px-6 py-4 text-center">
+                      {grade.trend === 'UP' && <TrendingUp className="w-5 h-5 text-green-600 mx-auto" />}
+                      {grade.trend === 'DOWN' && <TrendingDown className="w-5 h-5 text-red-600 mx-auto" />}
+                      {grade.trend === 'STABLE' && <div className="w-5 h-0.5 bg-gray-400 mx-auto" />}
+                    </td>
+                    <td className="px-6 py-4 text-right">
+                      <Button size="sm" variant="outline">
+                        <Eye className="w-4 h-4 mr-2" />
+                        Details
+                      </Button>
+                    </td>
+                  </tr>
+                ))
+              ) : (
+                <tr>
+                  <td colSpan={8} className="px-6 py-12 text-center text-gray-500 dark:text-gray-400">
+                    No grades data available
                   </td>
                 </tr>
-              ))}
+              )}
             </tbody>
           </table>
         </div>
@@ -310,66 +268,98 @@ export function StudentGrades() {
         <Card className="p-6 bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700">
           <h3 className="text-lg text-gray-900 dark:text-white mb-4">Grade Distribution</h3>
           <div className="space-y-4">
-            {['A', 'B', 'C', 'D', 'F'].map((letter) => {
-              const count = mockGrades.filter(g => g.grade.startsWith(letter)).length;
-              const percentage = (count / mockGrades.length) * 100;
-              return (
-                <div key={letter} className="space-y-2">
+            {gradeDistribution && gradeDistribution.length > 0 ? (
+              gradeDistribution.map((item) => (
+                <div key={item.grade} className="space-y-2">
                   <div className="flex items-center justify-between">
-                    <Badge variant="outline" className={`${getGradeColor(letter)} px-3 py-1`}>
-                      Grade {letter}
+                    <Badge variant="outline" className={`${getGradeColor(item.grade)} px-3 py-1`}>
+                      Grade {item.grade}
                     </Badge>
                     <span className="text-sm text-gray-600 dark:text-gray-400">
-                      {count} subjects ({percentage.toFixed(0)}%)
+                      {item.count} subjects ({item.percentage.toFixed(0)}%)
                     </span>
                   </div>
-                  <Progress value={percentage} className="h-2" />
+                  <Progress value={item.percentage} className="h-2" />
                 </div>
-              );
-            })}
+              ))
+            ) : (
+              ['A', 'B', 'C', 'D', 'F'].map((letter) => {
+                const count = subjectPerformance?.filter(g => g.grade.startsWith(letter)).length || 0;
+                const percentage = subjectPerformance ? (count / subjectPerformance.length) * 100 : 0;
+                return (
+                  <div key={letter} className="space-y-2">
+                    <div className="flex items-center justify-between">
+                      <Badge variant="outline" className={`${getGradeColor(letter)} px-3 py-1`}>
+                        Grade {letter}
+                      </Badge>
+                      <span className="text-sm text-gray-600 dark:text-gray-400">
+                        {count} subjects ({percentage.toFixed(0)}%)
+                      </span>
+                    </div>
+                    <Progress value={percentage} className="h-2" />
+                  </div>
+                );
+              })
+            )}
           </div>
         </Card>
 
         {/* Previous Term Reports */}
         <Card className="p-6 bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700">
           <div className="flex items-center justify-between mb-4">
-            <h3 className="text-lg text-gray-900 dark:text-white">Previous Term Reports</h3>
+            <h3 className="text-lg text-gray-900 dark:text-white">Exam Reports</h3>
             <Button variant="ghost" size="sm">View All</Button>
           </div>
           <div className="space-y-3">
-            {termReports.map((report) => (
-              <Card key={report.term} className="p-4 border-2 border-gray-200 dark:border-gray-700 hover:border-blue-400 dark:hover:border-blue-600">
-                <div className="flex items-start justify-between mb-3">
-                  <div>
-                    <h4 className="text-sm text-gray-900 dark:text-white mb-1">{report.term}</h4>
-                    <p className="text-xs text-gray-500 dark:text-gray-400">
-                      Published: {new Date(report.date).toLocaleDateString()}
-                    </p>
+            {examReports && examReports.length > 0 ? (
+              examReports.map((report) => (
+                <Card key={report.examId} className="p-4 border-2 border-gray-200 dark:border-gray-700 hover:border-blue-400 dark:hover:border-blue-600">
+                  <div className="flex items-start justify-between mb-3">
+                    <div>
+                      <h4 className="text-sm text-gray-900 dark:text-white mb-1">{report.examName}</h4>
+                      <p className="text-xs text-gray-500 dark:text-gray-400">
+                        {report.student.class}
+                      </p>
+                    </div>
+                    <Badge variant="outline" className="bg-blue-100 text-blue-700 border-blue-300 dark:bg-blue-900/20 dark:text-blue-400">
+                      {report.grade}
+                    </Badge>
                   </div>
-                  <Badge variant="outline" className="bg-blue-100 text-blue-700 border-blue-300 dark:bg-blue-900/20 dark:text-blue-400">
-                    Published
-                  </Badge>
-                </div>
-                <div className="grid grid-cols-3 gap-4 mb-3">
-                  <div>
-                    <p className="text-xs text-gray-500 dark:text-gray-400 mb-1">GPA</p>
-                    <p className="text-lg text-gray-900 dark:text-white">{report.gpa}</p>
+                  <div className="grid grid-cols-3 gap-4 mb-3">
+                    <div>
+                      <p className="text-xs text-gray-500 dark:text-gray-400 mb-1">Total</p>
+                      <p className="text-lg text-gray-900 dark:text-white">{report.obtainedTotal}/{report.totalMarks}</p>
+                    </div>
+                    <div>
+                      <p className="text-xs text-gray-500 dark:text-gray-400 mb-1">Percentage</p>
+                      <p className="text-lg text-gray-900 dark:text-white">{report.percentage}%</p>
+                    </div>
+                    <div>
+                      <p className="text-xs text-gray-500 dark:text-gray-400 mb-1">Rank</p>
+                      <p className="text-lg text-gray-900 dark:text-white">{report.rank || '-'}</p>
+                    </div>
                   </div>
-                  <div>
-                    <p className="text-xs text-gray-500 dark:text-gray-400 mb-1">Percentage</p>
-                    <p className="text-lg text-gray-900 dark:text-white">{report.percentage}%</p>
-                  </div>
-                  <div>
-                    <p className="text-xs text-gray-500 dark:text-gray-400 mb-1">Class Rank</p>
-                    <p className="text-lg text-gray-900 dark:text-white">{report.rank}/{report.totalStudents}</p>
-                  </div>
-                </div>
-                <Button variant="outline" size="sm" className="w-full">
-                  <Download className="w-4 h-4 mr-2" />
-                  Download Report Card
-                </Button>
-              </Card>
-            ))}
+                  <Button 
+                    variant="outline" 
+                    size="sm" 
+                    className="w-full"
+                    onClick={() => handleDownloadReport(report.examId)}
+                    disabled={downloadLoading}
+                  >
+                    {downloadLoading ? (
+                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                    ) : (
+                      <Download className="w-4 h-4 mr-2" />
+                    )}
+                    Download Report Card
+                  </Button>
+                </Card>
+              ))
+            ) : (
+              <div className="text-center py-8 text-gray-500 dark:text-gray-400">
+                No exam reports available
+              </div>
+            )}
           </div>
         </Card>
       </div>

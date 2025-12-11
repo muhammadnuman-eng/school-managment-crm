@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { DollarSign, CreditCard, Download, Clock, CheckCircle, AlertCircle, Receipt } from 'lucide-react';
+import { DollarSign, CreditCard, Download, Clock, CheckCircle, AlertCircle, Receipt, RefreshCw, Loader2 } from 'lucide-react';
 import { Card } from '../ui/card';
 import { Button } from '../ui/button';
 import { Badge } from '../ui/badge';
@@ -7,151 +7,133 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, Di
 import { Label } from '../ui/label';
 import { Input } from '../ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
-import { toast } from 'sonner@2.0.3';
-import { Progress } from '../ui/progress';
+import { toast } from 'sonner';
+import { Skeleton } from '../ui/skeleton';
+import { useFeeOverview, useFees, usePayments, usePayFee, useDownloadInvoice } from '../../hooks/useStudentData';
 
-interface FeeRecord {
-  id: number;
-  title: string;
-  description: string;
-  amount: number;
-  dueDate: string;
-  status: 'paid' | 'pending' | 'overdue' | 'partial';
-  paidAmount?: number;
-  paidDate?: string;
-  paymentMethod?: string;
-  transactionId?: string;
+// Skeleton loader
+function FeesSkeleton() {
+  return (
+    <div className="space-y-6">
+      <div>
+        <Skeleton className="h-8 w-48 mb-2" />
+        <Skeleton className="h-4 w-64" />
+      </div>
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+        {[1, 2, 3, 4].map((i) => (
+          <Skeleton key={i} className="h-28" />
+        ))}
+      </div>
+      <Skeleton className="h-96" />
+    </div>
+  );
 }
 
-const mockFees: FeeRecord[] = [
-  {
-    id: 1,
-    title: 'Tuition Fee - Term 3',
-    description: 'Regular tuition fee for Term 3 2024',
-    amount: 50000,
-    dueDate: '2024-11-15',
-    status: 'pending'
-  },
-  {
-    id: 2,
-    title: 'Library Fee',
-    description: 'Annual library membership and books',
-    amount: 2000,
-    dueDate: '2024-11-10',
-    status: 'pending'
-  },
-  {
-    id: 3,
-    title: 'Lab Fee',
-    description: 'Science laboratory equipment and materials',
-    amount: 3500,
-    dueDate: '2024-11-20',
-    status: 'pending'
-  },
-  {
-    id: 4,
-    title: 'Tuition Fee - Term 2',
-    description: 'Regular tuition fee for Term 2 2024',
-    amount: 50000,
-    dueDate: '2024-08-15',
-    status: 'paid',
-    paidAmount: 50000,
-    paidDate: '2024-08-10',
-    paymentMethod: 'Bank Transfer',
-    transactionId: 'TXN123456789'
-  },
-  {
-    id: 5,
-    title: 'Sports Fee',
-    description: 'Annual sports and athletics fee',
-    amount: 5000,
-    dueDate: '2024-09-01',
-    status: 'paid',
-    paidAmount: 5000,
-    paidDate: '2024-08-28',
-    paymentMethod: 'Credit Card',
-    transactionId: 'TXN987654321'
-  },
-];
-
 export function StudentFees() {
-  const [fees, setFees] = useState<FeeRecord[]>(mockFees);
   const [isPaymentDialogOpen, setIsPaymentDialogOpen] = useState(false);
-  const [selectedFee, setSelectedFee] = useState<FeeRecord | null>(null);
+  const [selectedFeeId, setSelectedFeeId] = useState<string | null>(null);
   const [paymentAmount, setPaymentAmount] = useState('');
-  const [paymentMethod, setPaymentMethod] = useState('');
+  const [paymentMethod, setPaymentMethod] = useState<'CASH' | 'BANK_TRANSFER' | 'CARD' | 'JAZZCASH' | 'EASYPAISA' | 'OTHER'>('CASH');
 
-  const pendingFees = fees.filter(f => f.status === 'pending' || f.status === 'overdue');
-  const paidFees = fees.filter(f => f.status === 'paid');
+  // API Hooks - Based on student-panel-apis.json
+  // FEE_01: /student/fees/overview
+  const { data: feeOverview, loading: overviewLoading, error: overviewError, refetch: refetchOverview } = useFeeOverview();
+  
+  // FEE_02: /student/fees
+  const { data: fees, loading: feesLoading, refetch: refetchFees } = useFees();
+  
+  // FEE_03: /student/fees/payments
+  const { data: payments, loading: paymentsLoading } = usePayments();
+  
+  // FEE_06: /student/fees/:feeId/pay
+  const { payFee, loading: payingFee } = usePayFee();
+  
+  // FEE_05: Download Invoice
+  const { download: downloadInvoice, loading: downloadingInvoice } = useDownloadInvoice();
+
+  const loading = overviewLoading || feesLoading;
+
+  // Filter fees
+  const pendingFees = fees?.filter(f => f.status === 'PENDING' || f.status === 'OVERDUE' || f.status === 'PARTIAL') || [];
+  const paidFees = fees?.filter(f => f.status === 'PAID') || [];
 
   const stats = {
-    totalPending: pendingFees.reduce((sum, f) => sum + f.amount, 0),
-    totalPaid: paidFees.reduce((sum, f) => sum + (f.paidAmount || 0), 0),
+    totalPending: feeOverview?.pendingAmount || pendingFees.reduce((sum, f) => sum + (f.amount - f.paidAmount), 0),
+    totalPaid: feeOverview?.paidAmount || paidFees.reduce((sum, f) => sum + f.paidAmount, 0),
+    overdueAmount: feeOverview?.overdueAmount || 0,
     pendingCount: pendingFees.length,
     paidCount: paidFees.length,
+    currency: feeOverview?.currency || 'PKR',
   };
 
-  const handlePayment = () => {
-    if (!paymentAmount || !paymentMethod) {
-      toast.error('Please fill all payment details');
+  const handlePayment = async () => {
+    if (!selectedFeeId || !paymentMethod) {
+      toast.error('Please select payment method');
       return;
     }
 
-    if (selectedFee) {
-      const amount = parseFloat(paymentAmount);
-      if (amount > selectedFee.amount) {
-        toast.error('Payment amount cannot exceed fee amount');
-        return;
-      }
+    const result = await payFee(selectedFeeId, {
+      amount: paymentAmount ? parseFloat(paymentAmount) : undefined,
+      paymentMethod,
+    });
 
-      setFees(prev => prev.map(f => 
-        f.id === selectedFee.id 
-          ? { 
-              ...f, 
-              status: amount >= f.amount ? 'paid' as const : 'partial' as const,
-              paidAmount: amount,
-              paidDate: new Date().toISOString().split('T')[0],
-              paymentMethod,
-              transactionId: `TXN${Date.now()}`
-            }
-          : f
-      ));
+    if (result) {
       setIsPaymentDialogOpen(false);
       setPaymentAmount('');
-      setPaymentMethod('');
-      setSelectedFee(null);
-      toast.success('Payment processed successfully!', {
-        description: 'Your payment has been recorded.'
-      });
+      setPaymentMethod('CASH');
+      setSelectedFeeId(null);
+      refetchFees();
+      refetchOverview();
     }
   };
 
-  const getStatusColor = (status: FeeRecord['status']) => {
+  const handleDownloadInvoice = async (feeId: string, invoiceNumber: string) => {
+    await downloadInvoice(feeId, invoiceNumber);
+  };
+
+  const getStatusColor = (status: string) => {
     switch (status) {
-      case 'paid': return 'bg-green-100 text-green-700 border-green-300 dark:bg-green-900/20 dark:text-green-400';
-      case 'pending': return 'bg-orange-100 text-orange-700 border-orange-300 dark:bg-orange-900/20 dark:text-orange-400';
-      case 'overdue': return 'bg-red-100 text-red-700 border-red-300 dark:bg-red-900/20 dark:text-red-400';
-      case 'partial': return 'bg-blue-100 text-blue-700 border-blue-300 dark:bg-blue-900/20 dark:text-blue-400';
+      case 'PAID': return 'bg-green-100 text-green-700 border-green-300 dark:bg-green-900/20 dark:text-green-400';
+      case 'PENDING': return 'bg-orange-100 text-orange-700 border-orange-300 dark:bg-orange-900/20 dark:text-orange-400';
+      case 'OVERDUE': return 'bg-red-100 text-red-700 border-red-300 dark:bg-red-900/20 dark:text-red-400';
+      case 'PARTIAL': return 'bg-blue-100 text-blue-700 border-blue-300 dark:bg-blue-900/20 dark:text-blue-400';
+      default: return 'bg-gray-100 text-gray-700 border-gray-300';
     }
   };
 
-  const getStatusIcon = (status: FeeRecord['status']) => {
+  const getStatusIcon = (status: string) => {
     switch (status) {
-      case 'paid': return <CheckCircle className="w-4 h-4" />;
-      case 'pending': return <Clock className="w-4 h-4" />;
-      case 'overdue': return <AlertCircle className="w-4 h-4" />;
-      case 'partial': return <Clock className="w-4 h-4" />;
+      case 'PAID': return <CheckCircle className="w-4 h-4" />;
+      case 'PENDING': return <Clock className="w-4 h-4" />;
+      case 'OVERDUE': return <AlertCircle className="w-4 h-4" />;
+      case 'PARTIAL': return <Clock className="w-4 h-4" />;
+      default: return <Clock className="w-4 h-4" />;
     }
   };
+
+  if (loading) {
+    return <FeesSkeleton />;
+  }
 
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div>
-        <h1 className="text-3xl text-gray-900 dark:text-white mb-2">Fee Management</h1>
-        <p className="text-gray-600 dark:text-gray-400">
-          View and pay your school fees
-        </p>
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-3xl text-gray-900 dark:text-white mb-2">Fee Management</h1>
+          <p className="text-gray-600 dark:text-gray-400">
+            View and pay your school fees
+          </p>
+          {overviewError && (
+            <p className="text-sm text-amber-600 dark:text-amber-400 mt-1">
+              Unable to load fee data. Please try again.
+            </p>
+          )}
+        </div>
+        <Button variant="outline" onClick={() => { refetchFees(); refetchOverview(); }}>
+          <RefreshCw className="w-4 h-4 mr-2" />
+          Refresh
+        </Button>
       </div>
 
       {/* Stats */}
@@ -160,7 +142,7 @@ export function StudentFees() {
           <div className="flex items-center justify-between">
             <div>
               <p className="text-sm text-red-700 dark:text-red-300 mb-1">Total Pending</p>
-              <p className="text-3xl text-red-900 dark:text-red-100">PKR {stats.totalPending.toLocaleString()}</p>
+              <p className="text-3xl text-red-900 dark:text-red-100">{stats.currency} {stats.totalPending.toLocaleString()}</p>
             </div>
             <div className="w-12 h-12 rounded-lg bg-red-600 flex items-center justify-center">
               <DollarSign className="w-6 h-6 text-white" />
@@ -172,7 +154,7 @@ export function StudentFees() {
           <div className="flex items-center justify-between">
             <div>
               <p className="text-sm text-green-700 dark:text-green-300 mb-1">Total Paid</p>
-              <p className="text-3xl text-green-900 dark:text-green-100">PKR {stats.totalPaid.toLocaleString()}</p>
+              <p className="text-3xl text-green-900 dark:text-green-100">{stats.currency} {stats.totalPaid.toLocaleString()}</p>
             </div>
             <div className="w-12 h-12 rounded-lg bg-green-600 flex items-center justify-center">
               <CheckCircle className="w-6 h-6 text-white" />
@@ -215,6 +197,8 @@ export function StudentFees() {
             <div className="space-y-4">
               {pendingFees.map((fee) => {
                 const daysUntilDue = Math.ceil((new Date(fee.dueDate).getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24));
+                const remainingAmount = fee.amount - fee.paidAmount;
+                
                 return (
                   <Card key={fee.id} className="p-6 border-2 border-gray-200 dark:border-gray-700">
                     <div className="flex items-start justify-between mb-4">
@@ -223,14 +207,14 @@ export function StudentFees() {
                           <DollarSign className="w-6 h-6 text-white" />
                         </div>
                         <div className="flex-1">
-                          <h3 className="text-lg text-gray-900 dark:text-white mb-1">{fee.title}</h3>
+                          <h3 className="text-lg text-gray-900 dark:text-white mb-1">{fee.feeType}</h3>
                           <p className="text-sm text-gray-600 dark:text-gray-400 mb-3">{fee.description}</p>
                           <div className="flex items-center gap-4 text-sm">
                             <Badge variant="outline" className={getStatusColor(fee.status)}>
                               {getStatusIcon(fee.status)}
-                              <span className="ml-1">{fee.status.toUpperCase()}</span>
+                              <span className="ml-1">{fee.status}</span>
                             </Badge>
-                            <span className={`text-gray-600 dark:text-gray-400 ${daysUntilDue <= 7 ? 'text-red-600 dark:text-red-400' : ''}`}>
+                            <span className={`text-gray-600 dark:text-gray-400 ${daysUntilDue <= 7 && daysUntilDue >= 0 ? 'text-red-600 dark:text-red-400' : ''}`}>
                               Due: {new Date(fee.dueDate).toLocaleDateString()}
                               {daysUntilDue >= 0 && daysUntilDue <= 30 && (
                                 <span className="ml-1">({daysUntilDue} days left)</span>
@@ -241,21 +225,26 @@ export function StudentFees() {
                       </div>
                       <div className="text-right">
                         <p className="text-2xl text-gray-900 dark:text-white mb-1">
-                          PKR {fee.amount.toLocaleString()}
+                          {stats.currency} {remainingAmount.toLocaleString()}
                         </p>
+                        {fee.paidAmount > 0 && (
+                          <p className="text-sm text-gray-500">
+                            Paid: {stats.currency} {fee.paidAmount.toLocaleString()}
+                          </p>
+                        )}
                       </div>
                     </div>
 
                     <div className="flex gap-3 pl-16">
-                      <Dialog open={isPaymentDialogOpen && selectedFee?.id === fee.id} onOpenChange={(open) => {
+                      <Dialog open={isPaymentDialogOpen && selectedFeeId === fee.id} onOpenChange={(open) => {
                         setIsPaymentDialogOpen(open);
                         if (open) {
-                          setSelectedFee(fee);
-                          setPaymentAmount(fee.amount.toString());
+                          setSelectedFeeId(fee.id);
+                          setPaymentAmount(remainingAmount.toString());
                         } else {
-                          setSelectedFee(null);
+                          setSelectedFeeId(null);
                           setPaymentAmount('');
-                          setPaymentMethod('');
+                          setPaymentMethod('CASH');
                         }
                       }}>
                         <DialogTrigger asChild>
@@ -268,16 +257,16 @@ export function StudentFees() {
                           <DialogHeader>
                             <DialogTitle>Process Payment</DialogTitle>
                             <DialogDescription>
-                              Select your payment method and complete the transaction securely.
+                              Select your payment method and complete the transaction.
                             </DialogDescription>
                           </DialogHeader>
                           <div className="space-y-4 py-4">
                             <div className="p-4 rounded-lg bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700">
-                              <h4 className="text-sm text-gray-900 dark:text-white mb-2">{fee.title}</h4>
+                              <h4 className="text-sm text-gray-900 dark:text-white mb-2">{fee.feeType}</h4>
                               <p className="text-xs text-gray-600 dark:text-gray-400 mb-3">{fee.description}</p>
                               <div className="flex items-center justify-between">
-                                <span className="text-sm text-gray-600 dark:text-gray-400">Total Amount:</span>
-                                <span className="text-lg text-gray-900 dark:text-white">PKR {fee.amount.toLocaleString()}</span>
+                                <span className="text-sm text-gray-600 dark:text-gray-400">Remaining Amount:</span>
+                                <span className="text-lg text-gray-900 dark:text-white">{stats.currency} {remainingAmount.toLocaleString()}</span>
                               </div>
                             </div>
 
@@ -295,17 +284,17 @@ export function StudentFees() {
 
                             <div className="space-y-2">
                               <Label htmlFor="method">Payment Method</Label>
-                              <Select value={paymentMethod} onValueChange={setPaymentMethod}>
+                              <Select value={paymentMethod} onValueChange={(value: typeof paymentMethod) => setPaymentMethod(value)}>
                                 <SelectTrigger className="h-11">
                                   <SelectValue placeholder="Select payment method" />
                                 </SelectTrigger>
                                 <SelectContent>
-                                  <SelectItem value="bank_transfer">Bank Transfer</SelectItem>
-                                  <SelectItem value="credit_card">Credit Card</SelectItem>
-                                  <SelectItem value="debit_card">Debit Card</SelectItem>
-                                  <SelectItem value="cash">Cash</SelectItem>
-                                  <SelectItem value="jazzcash">JazzCash</SelectItem>
-                                  <SelectItem value="easypaisa">Easypaisa</SelectItem>
+                                  <SelectItem value="BANK_TRANSFER">Bank Transfer</SelectItem>
+                                  <SelectItem value="CARD">Credit/Debit Card</SelectItem>
+                                  <SelectItem value="CASH">Cash</SelectItem>
+                                  <SelectItem value="JAZZCASH">JazzCash</SelectItem>
+                                  <SelectItem value="EASYPAISA">Easypaisa</SelectItem>
+                                  <SelectItem value="OTHER">Other</SelectItem>
                                 </SelectContent>
                               </Select>
                             </div>
@@ -317,9 +306,22 @@ export function StudentFees() {
                             </div>
 
                             <div className="flex gap-3 pt-4">
-                              <Button onClick={handlePayment} className="flex-1 bg-blue-600 hover:bg-blue-700">
-                                <CreditCard className="w-4 h-4 mr-2" />
-                                Process Payment
+                              <Button 
+                                onClick={handlePayment} 
+                                className="flex-1 bg-blue-600 hover:bg-blue-700"
+                                disabled={payingFee}
+                              >
+                                {payingFee ? (
+                                  <>
+                                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                                    Processing...
+                                  </>
+                                ) : (
+                                  <>
+                                    <CreditCard className="w-4 h-4 mr-2" />
+                                    Process Payment
+                                  </>
+                                )}
                               </Button>
                               <Button onClick={() => setIsPaymentDialogOpen(false)} variant="outline" className="flex-1">
                                 Cancel
@@ -328,8 +330,16 @@ export function StudentFees() {
                           </div>
                         </DialogContent>
                       </Dialog>
-                      <Button variant="outline">
-                        <Download className="w-4 h-4 mr-2" />
+                      <Button 
+                        variant="outline"
+                        onClick={() => fee.invoiceNumber && handleDownloadInvoice(fee.id, fee.invoiceNumber)}
+                        disabled={downloadingInvoice || !fee.invoiceNumber}
+                      >
+                        {downloadingInvoice ? (
+                          <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                        ) : (
+                          <Download className="w-4 h-4 mr-2" />
+                        )}
                         Download Invoice
                       </Button>
                     </div>
@@ -355,66 +365,50 @@ export function StudentFees() {
           <table className="w-full">
             <thead className="bg-gray-50 dark:bg-gray-900 border-b border-gray-200 dark:border-gray-700">
               <tr>
-                <th className="px-6 py-4 text-left text-xs text-gray-600 dark:text-gray-400 uppercase">
-                  Fee Title
-                </th>
-                <th className="px-6 py-4 text-center text-xs text-gray-600 dark:text-gray-400 uppercase">
-                  Amount
-                </th>
-                <th className="px-6 py-4 text-center text-xs text-gray-600 dark:text-gray-400 uppercase">
-                  Payment Date
-                </th>
-                <th className="px-6 py-4 text-center text-xs text-gray-600 dark:text-gray-400 uppercase">
-                  Method
-                </th>
-                <th className="px-6 py-4 text-center text-xs text-gray-600 dark:text-gray-400 uppercase">
-                  Transaction ID
-                </th>
-                <th className="px-6 py-4 text-center text-xs text-gray-600 dark:text-gray-400 uppercase">
-                  Status
-                </th>
-                <th className="px-6 py-4 text-right text-xs text-gray-600 dark:text-gray-400 uppercase">
-                  Receipt
-                </th>
+                <th className="px-6 py-4 text-left text-xs text-gray-600 dark:text-gray-400 uppercase">Fee</th>
+                <th className="px-6 py-4 text-center text-xs text-gray-600 dark:text-gray-400 uppercase">Amount</th>
+                <th className="px-6 py-4 text-center text-xs text-gray-600 dark:text-gray-400 uppercase">Payment Date</th>
+                <th className="px-6 py-4 text-center text-xs text-gray-600 dark:text-gray-400 uppercase">Method</th>
+                <th className="px-6 py-4 text-center text-xs text-gray-600 dark:text-gray-400 uppercase">Transaction ID</th>
+                <th className="px-6 py-4 text-right text-xs text-gray-600 dark:text-gray-400 uppercase">Receipt</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
-              {paidFees.map((fee) => (
-                <tr key={fee.id} className="hover:bg-gray-50 dark:hover:bg-gray-900/50">
-                  <td className="px-6 py-4">
-                    <div>
-                      <p className="text-sm text-gray-900 dark:text-white">{fee.title}</p>
-                      <p className="text-xs text-gray-500 dark:text-gray-400">{fee.description}</p>
-                    </div>
-                  </td>
-                  <td className="px-6 py-4 text-center">
-                    <span className="text-sm text-gray-900 dark:text-white">PKR {(fee.paidAmount || 0).toLocaleString()}</span>
-                  </td>
-                  <td className="px-6 py-4 text-center">
-                    <span className="text-sm text-gray-600 dark:text-gray-400">
-                      {fee.paidDate && new Date(fee.paidDate).toLocaleDateString()}
-                    </span>
-                  </td>
-                  <td className="px-6 py-4 text-center">
-                    <span className="text-sm text-gray-600 dark:text-gray-400">{fee.paymentMethod}</span>
-                  </td>
-                  <td className="px-6 py-4 text-center">
-                    <span className="text-xs text-gray-500 dark:text-gray-400 font-mono">{fee.transactionId}</span>
-                  </td>
-                  <td className="px-6 py-4 text-center">
-                    <Badge variant="outline" className={getStatusColor(fee.status)}>
-                      {getStatusIcon(fee.status)}
-                      <span className="ml-1">PAID</span>
-                    </Badge>
-                  </td>
-                  <td className="px-6 py-4 text-right">
-                    <Button size="sm" variant="outline">
-                      <Download className="w-4 h-4 mr-2" />
-                      Receipt
-                    </Button>
+              {payments && payments.length > 0 ? (
+                payments.map((payment) => (
+                  <tr key={payment.id} className="hover:bg-gray-50 dark:hover:bg-gray-900/50">
+                    <td className="px-6 py-4">
+                      <span className="text-sm text-gray-900 dark:text-white">Fee Payment</span>
+                    </td>
+                    <td className="px-6 py-4 text-center">
+                      <span className="text-sm text-gray-900 dark:text-white">{stats.currency} {payment.amount.toLocaleString()}</span>
+                    </td>
+                    <td className="px-6 py-4 text-center">
+                      <span className="text-sm text-gray-600 dark:text-gray-400">
+                        {new Date(payment.paidAt).toLocaleDateString()}
+                      </span>
+                    </td>
+                    <td className="px-6 py-4 text-center">
+                      <span className="text-sm text-gray-600 dark:text-gray-400">{payment.paymentMethod}</span>
+                    </td>
+                    <td className="px-6 py-4 text-center">
+                      <span className="text-xs text-gray-500 dark:text-gray-400 font-mono">{payment.transactionId || '-'}</span>
+                    </td>
+                    <td className="px-6 py-4 text-right">
+                      <Button size="sm" variant="outline">
+                        <Download className="w-4 h-4 mr-2" />
+                        Receipt
+                      </Button>
+                    </td>
+                  </tr>
+                ))
+              ) : (
+                <tr>
+                  <td colSpan={6} className="px-6 py-12 text-center text-gray-500 dark:text-gray-400">
+                    No payment history available
                   </td>
                 </tr>
-              ))}
+              )}
             </tbody>
           </table>
         </div>

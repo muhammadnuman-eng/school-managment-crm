@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { User, Mail, Phone, MapPin, Calendar, Award, BookOpen, Save, Camera } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { User, Mail, Phone, MapPin, Calendar, Save, Camera, Loader2, RefreshCw } from 'lucide-react';
 import { Card } from '../ui/card';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
@@ -7,76 +7,90 @@ import { Label } from '../ui/label';
 import { Textarea } from '../ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
 import { Badge } from '../ui/badge';
-import { toast } from 'sonner@2.0.3';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../ui/tabs';
+import { Skeleton } from '../ui/skeleton';
+import { useProfile, useUpdateProfile, usePerformanceOverview, useAttendanceSummary } from '../../hooks/useStudentData';
 
-interface StudentProfile {
-  name: string;
-  email: string;
-  phone: string;
-  address: string;
-  dateOfBirth: string;
-  gender: string;
-  bloodGroup: string;
-  studentId: string;
-  class: string;
-  section: string;
-  rollNumber: string;
-  admissionDate: string;
-  parentName: string;
-  parentPhone: string;
-  parentEmail: string;
-  emergencyContact: string;
-  medicalInfo: string;
+// Skeleton loader
+function ProfileSkeleton() {
+  return (
+    <div className="space-y-6">
+      <div className="flex items-center justify-between">
+        <div>
+          <Skeleton className="h-8 w-40 mb-2" />
+          <Skeleton className="h-4 w-64" />
+        </div>
+        <Skeleton className="h-10 w-32" />
+      </div>
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <Skeleton className="h-96" />
+        <Skeleton className="lg:col-span-2 h-96" />
+      </div>
+    </div>
+  );
 }
 
-const mockProfile: StudentProfile = {
-  name: 'Emily Rodriguez',
-  email: 'emily.rodriguez@school.edu',
-  phone: '+92 300-1234567',
-  address: 'House 456, Street 78, G-9/1, Islamabad',
-  dateOfBirth: '2008-03-15',
-  gender: 'Female',
-  bloodGroup: 'O+',
-  studentId: 'STU-2024-001',
-  class: 'Grade 10',
-  section: 'A',
-  rollNumber: '15',
-  admissionDate: '2020-08-01',
-  parentName: 'Maria Rodriguez',
-  parentPhone: '+92 300-7654321',
-  parentEmail: 'maria.rodriguez@email.com',
-  emergencyContact: '+92 301-9876543',
-  medicalInfo: 'No known allergies'
-};
-
-const academicStats = {
-  currentGPA: 3.8,
-  attendance: 95,
-  rank: 5,
-  totalStudents: 120,
-  subjects: 10,
-  completedAssignments: 45,
-  totalAssignments: 50
-};
-
 export function StudentProfile() {
-  const [profile, setProfile] = useState<StudentProfile>(mockProfile);
+  // API Hooks - Based on student-panel-apis.json
+  // PROFILE_01: /student/profile
+  const { data: profileData, loading: profileLoading, error: profileError, refetch: refetchProfile } = useProfile();
+  
+  // PROFILE_02: /student/profile (PATCH)
+  const { updateProfile, loading: updating } = useUpdateProfile();
+  
+  // EXAM_05: /student/exams/performance/overview (for academic stats)
+  const { data: performanceData } = usePerformanceOverview();
+  
+  // ATTENDANCE_02: /student/attendance/summary
+  const { data: attendanceData } = useAttendanceSummary();
+
   const [isEditing, setIsEditing] = useState(false);
-  const [isSaving, setIsSaving] = useState(false);
+  const [formData, setFormData] = useState({
+    address: '',
+    medicalInfo: '',
+    phone: '',
+    preferredLocale: 'en',
+    timezone: 'Asia/Karachi',
+  });
 
-  const handleSave = () => {
-    setIsSaving(true);
-    setTimeout(() => {
-      setIsSaving(false);
+  // Update form data when profile loads
+  useEffect(() => {
+    if (profileData) {
+      setFormData({
+        address: profileData.address || '',
+        medicalInfo: profileData.medicalInfo || '',
+        phone: profileData.phone || '',
+        preferredLocale: profileData.preferredLocale || 'en',
+        timezone: profileData.timezone || 'Asia/Karachi',
+      });
+    }
+  }, [profileData]);
+
+  const handleSave = async () => {
+    const result = await updateProfile(formData);
+    if (result) {
       setIsEditing(false);
-      toast.success('Profile updated successfully!');
-    }, 1500);
+      refetchProfile();
+    }
   };
 
-  const handleChange = (field: keyof StudentProfile, value: string) => {
-    setProfile(prev => ({ ...prev, [field]: value }));
+  const handleChange = (field: keyof typeof formData, value: string) => {
+    setFormData(prev => ({ ...prev, [field]: value }));
   };
+
+  // Academic stats from APIs
+  const academicStats = {
+    currentGPA: performanceData?.currentGPA || 0,
+    attendance: attendanceData?.percentage || 0,
+    rank: performanceData?.rank,
+    totalStudents: performanceData?.totalStudents,
+  };
+
+  if (profileLoading) {
+    return <ProfileSkeleton />;
+  }
+
+  const profile = profileData;
 
   return (
     <div className="space-y-6">
@@ -87,31 +101,42 @@ export function StudentProfile() {
           <p className="text-gray-600 dark:text-gray-400">
             View and manage your profile information
           </p>
+          {profileError && (
+            <p className="text-sm text-amber-600 dark:text-amber-400 mt-1">
+              Unable to load profile. Please try again.
+            </p>
+          )}
         </div>
-        {!isEditing ? (
-          <Button onClick={() => setIsEditing(true)} className="bg-blue-600 hover:bg-blue-700 text-white">
-            Edit Profile
+        <div className="flex gap-2">
+          <Button variant="outline" onClick={() => refetchProfile()}>
+            <RefreshCw className="w-4 h-4 mr-2" />
+            Refresh
           </Button>
-        ) : (
-          <div className="flex gap-2">
-            <Button onClick={handleSave} disabled={isSaving} className="bg-blue-600 hover:bg-blue-700 text-white">
-              {isSaving ? (
-                <>
-                  <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin mr-2" />
-                  Saving...
-                </>
-              ) : (
-                <>
-                  <Save className="w-4 h-4 mr-2" />
-                  Save Changes
-                </>
-              )}
+          {!isEditing ? (
+            <Button onClick={() => setIsEditing(true)} className="bg-blue-600 hover:bg-blue-700 text-white">
+              Edit Profile
             </Button>
-            <Button onClick={() => setIsEditing(false)} variant="outline">
-              Cancel
-            </Button>
-          </div>
-        )}
+          ) : (
+            <div className="flex gap-2">
+              <Button onClick={handleSave} disabled={updating} className="bg-blue-600 hover:bg-blue-700 text-white">
+                {updating ? (
+                  <>
+                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                    Saving...
+                  </>
+                ) : (
+                  <>
+                    <Save className="w-4 h-4 mr-2" />
+                    Save Changes
+                  </>
+                )}
+              </Button>
+              <Button onClick={() => setIsEditing(false)} variant="outline">
+                Cancel
+              </Button>
+            </div>
+          )}
+        </div>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -120,7 +145,7 @@ export function StudentProfile() {
           <div className="text-center">
             <div className="relative inline-block mb-4">
               <div className="w-32 h-32 rounded-full bg-gradient-to-br from-blue-500 to-purple-500 flex items-center justify-center text-white text-4xl mx-auto">
-                {profile.name.charAt(0)}
+                {profile?.firstName?.charAt(0) || 'S'}
               </div>
               {isEditing && (
                 <button className="absolute bottom-0 right-0 w-10 h-10 rounded-full bg-blue-600 hover:bg-blue-700 flex items-center justify-center text-white border-4 border-white dark:border-gray-800">
@@ -128,31 +153,31 @@ export function StudentProfile() {
                 </button>
               )}
             </div>
-            <h2 className="text-2xl text-gray-900 dark:text-white mb-1">{profile.name}</h2>
-            <p className="text-sm text-gray-600 dark:text-gray-400 mb-2">{profile.class} - Section {profile.section}</p>
+            <h2 className="text-2xl text-gray-900 dark:text-white mb-1">
+              {profile?.firstName} {profile?.lastName}
+            </h2>
+            <p className="text-sm text-gray-600 dark:text-gray-400 mb-2">
+              {profile?.student?.class} - Section {profile?.student?.section}
+            </p>
             <Badge variant="outline" className="mb-4">
-              Roll No: {profile.rollNumber}
+              Roll No: {profile?.student?.rollNumber}
             </Badge>
             <Badge variant="outline">
-              {profile.studentId}
+              {profile?.student?.admissionNumber}
             </Badge>
 
             <div className="space-y-3 text-sm text-left mt-6 pt-6 border-t border-gray-200 dark:border-gray-700">
               <div className="flex items-center gap-3 text-gray-600 dark:text-gray-400">
                 <Mail className="w-4 h-4 flex-shrink-0" />
-                <span className="truncate">{profile.email}</span>
+                <span className="truncate">{profile?.email}</span>
               </div>
               <div className="flex items-center gap-3 text-gray-600 dark:text-gray-400">
                 <Phone className="w-4 h-4 flex-shrink-0" />
-                <span>{profile.phone}</span>
+                <span>{profile?.phone || 'Not set'}</span>
               </div>
               <div className="flex items-center gap-3 text-gray-600 dark:text-gray-400">
                 <MapPin className="w-4 h-4 flex-shrink-0" />
-                <span>{profile.address}</span>
-              </div>
-              <div className="flex items-center gap-3 text-gray-600 dark:text-gray-400">
-                <Calendar className="w-4 h-4 flex-shrink-0" />
-                <span>Joined: {new Date(profile.admissionDate).toLocaleDateString()}</span>
+                <span>{profile?.address || 'Not set'}</span>
               </div>
             </div>
           </div>
@@ -166,7 +191,7 @@ export function StudentProfile() {
             <div className="grid grid-cols-3 gap-4">
               <div>
                 <p className="text-sm text-gray-600 dark:text-gray-400 mb-1">GPA</p>
-                <p className="text-2xl text-gray-900 dark:text-white">{academicStats.currentGPA}</p>
+                <p className="text-2xl text-gray-900 dark:text-white">{academicStats.currentGPA.toFixed(2)}</p>
               </div>
               <div>
                 <p className="text-sm text-gray-600 dark:text-gray-400 mb-1">Attendance</p>
@@ -174,7 +199,9 @@ export function StudentProfile() {
               </div>
               <div>
                 <p className="text-sm text-gray-600 dark:text-gray-400 mb-1">Class Rank</p>
-                <p className="text-2xl text-gray-900 dark:text-white">#{academicStats.rank}</p>
+                <p className="text-2xl text-gray-900 dark:text-white">
+                  {academicStats.rank ? `#${academicStats.rank}` : '-'}
+                </p>
               </div>
             </div>
           </Card>
@@ -196,10 +223,10 @@ export function StudentProfile() {
                   Academic Info
                 </TabsTrigger>
                 <TabsTrigger 
-                  value="parent"
+                  value="settings"
                   className="rounded-none border-b-2 border-transparent data-[state=active]:border-blue-600 data-[state=active]:bg-transparent px-0 pb-3"
                 >
-                  Parent Info
+                  Settings
                 </TabsTrigger>
               </TabsList>
 
@@ -207,17 +234,23 @@ export function StudentProfile() {
                 <div className="space-y-4">
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div className="space-y-2">
-                      <Label htmlFor="name">Full Name</Label>
-                      <div className="relative">
-                        <User className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
-                        <Input
-                          id="name"
-                          value={profile.name}
-                          onChange={(e) => handleChange('name', e.target.value)}
-                          disabled={!isEditing}
-                          className="pl-10 h-11"
-                        />
-                      </div>
+                      <Label htmlFor="firstName">First Name</Label>
+                      <Input
+                        id="firstName"
+                        value={profile?.firstName || ''}
+                        disabled
+                        className="h-11 bg-gray-50 dark:bg-gray-900"
+                      />
+                    </div>
+
+                    <div className="space-y-2">
+                      <Label htmlFor="lastName">Last Name</Label>
+                      <Input
+                        id="lastName"
+                        value={profile?.lastName || ''}
+                        disabled
+                        className="h-11 bg-gray-50 dark:bg-gray-900"
+                      />
                     </div>
 
                     <div className="space-y-2">
@@ -227,10 +260,9 @@ export function StudentProfile() {
                         <Input
                           id="email"
                           type="email"
-                          value={profile.email}
-                          onChange={(e) => handleChange('email', e.target.value)}
-                          disabled={!isEditing}
-                          className="pl-10 h-11"
+                          value={profile?.email || ''}
+                          disabled
+                          className="pl-10 h-11 bg-gray-50 dark:bg-gray-900"
                         />
                       </div>
                     </div>
@@ -242,60 +274,12 @@ export function StudentProfile() {
                         <Input
                           id="phone"
                           type="tel"
-                          value={profile.phone}
+                          value={formData.phone}
                           onChange={(e) => handleChange('phone', e.target.value)}
                           disabled={!isEditing}
                           className="pl-10 h-11"
                         />
                       </div>
-                    </div>
-
-                    <div className="space-y-2">
-                      <Label htmlFor="dob">Date of Birth</Label>
-                      <div className="relative">
-                        <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
-                        <Input
-                          id="dob"
-                          type="date"
-                          value={profile.dateOfBirth}
-                          onChange={(e) => handleChange('dateOfBirth', e.target.value)}
-                          disabled={!isEditing}
-                          className="pl-10 h-11"
-                        />
-                      </div>
-                    </div>
-
-                    <div className="space-y-2">
-                      <Label htmlFor="gender">Gender</Label>
-                      <Select value={profile.gender} onValueChange={(value) => handleChange('gender', value)} disabled={!isEditing}>
-                        <SelectTrigger className="h-11">
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="Male">Male</SelectItem>
-                          <SelectItem value="Female">Female</SelectItem>
-                          <SelectItem value="Other">Other</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
-
-                    <div className="space-y-2">
-                      <Label htmlFor="blood">Blood Group</Label>
-                      <Select value={profile.bloodGroup} onValueChange={(value) => handleChange('bloodGroup', value)} disabled={!isEditing}>
-                        <SelectTrigger className="h-11">
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="A+">A+</SelectItem>
-                          <SelectItem value="A-">A-</SelectItem>
-                          <SelectItem value="B+">B+</SelectItem>
-                          <SelectItem value="B-">B-</SelectItem>
-                          <SelectItem value="O+">O+</SelectItem>
-                          <SelectItem value="O-">O-</SelectItem>
-                          <SelectItem value="AB+">AB+</SelectItem>
-                          <SelectItem value="AB-">AB-</SelectItem>
-                        </SelectContent>
-                      </Select>
                     </div>
                   </div>
 
@@ -305,7 +289,7 @@ export function StudentProfile() {
                       <MapPin className="absolute left-3 top-3 w-5 h-5 text-gray-400" />
                       <Textarea
                         id="address"
-                        value={profile.address}
+                        value={formData.address}
                         onChange={(e) => handleChange('address', e.target.value)}
                         disabled={!isEditing}
                         rows={3}
@@ -318,7 +302,7 @@ export function StudentProfile() {
                     <Label htmlFor="medical">Medical Information</Label>
                     <Textarea
                       id="medical"
-                      value={profile.medicalInfo}
+                      value={formData.medicalInfo}
                       onChange={(e) => handleChange('medicalInfo', e.target.value)}
                       disabled={!isEditing}
                       rows={2}
@@ -333,10 +317,10 @@ export function StudentProfile() {
                 <div className="space-y-4">
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div className="space-y-2">
-                      <Label htmlFor="studentId">Student ID</Label>
+                      <Label htmlFor="admissionNumber">Admission Number</Label>
                       <Input
-                        id="studentId"
-                        value={profile.studentId}
+                        id="admissionNumber"
+                        value={profile?.student?.admissionNumber || ''}
                         disabled
                         className="h-11 bg-gray-50 dark:bg-gray-900"
                       />
@@ -346,7 +330,7 @@ export function StudentProfile() {
                       <Label htmlFor="rollNumber">Roll Number</Label>
                       <Input
                         id="rollNumber"
-                        value={profile.rollNumber}
+                        value={profile?.student?.rollNumber || ''}
                         disabled
                         className="h-11 bg-gray-50 dark:bg-gray-900"
                       />
@@ -356,7 +340,7 @@ export function StudentProfile() {
                       <Label htmlFor="class">Class</Label>
                       <Input
                         id="class"
-                        value={profile.class}
+                        value={profile?.student?.class || ''}
                         disabled
                         className="h-11 bg-gray-50 dark:bg-gray-900"
                       />
@@ -366,18 +350,7 @@ export function StudentProfile() {
                       <Label htmlFor="section">Section</Label>
                       <Input
                         id="section"
-                        value={profile.section}
-                        disabled
-                        className="h-11 bg-gray-50 dark:bg-gray-900"
-                      />
-                    </div>
-
-                    <div className="space-y-2">
-                      <Label htmlFor="admission">Admission Date</Label>
-                      <Input
-                        id="admission"
-                        type="date"
-                        value={profile.admissionDate}
+                        value={profile?.student?.section || ''}
                         disabled
                         className="h-11 bg-gray-50 dark:bg-gray-900"
                       />
@@ -386,54 +359,42 @@ export function StudentProfile() {
                 </div>
               </TabsContent>
 
-              <TabsContent value="parent" className="mt-0">
+              <TabsContent value="settings" className="mt-0">
                 <div className="space-y-4">
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div className="space-y-2">
-                      <Label htmlFor="parentName">Parent/Guardian Name</Label>
-                      <Input
-                        id="parentName"
-                        value={profile.parentName}
-                        onChange={(e) => handleChange('parentName', e.target.value)}
+                      <Label htmlFor="locale">Language</Label>
+                      <Select 
+                        value={formData.preferredLocale} 
+                        onValueChange={(value) => handleChange('preferredLocale', value)} 
                         disabled={!isEditing}
-                        className="h-11"
-                      />
+                      >
+                        <SelectTrigger className="h-11">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="en">English</SelectItem>
+                          <SelectItem value="ur">Urdu</SelectItem>
+                        </SelectContent>
+                      </Select>
                     </div>
 
                     <div className="space-y-2">
-                      <Label htmlFor="parentPhone">Parent Phone</Label>
-                      <Input
-                        id="parentPhone"
-                        type="tel"
-                        value={profile.parentPhone}
-                        onChange={(e) => handleChange('parentPhone', e.target.value)}
+                      <Label htmlFor="timezone">Timezone</Label>
+                      <Select 
+                        value={formData.timezone} 
+                        onValueChange={(value) => handleChange('timezone', value)} 
                         disabled={!isEditing}
-                        className="h-11"
-                      />
-                    </div>
-
-                    <div className="space-y-2">
-                      <Label htmlFor="parentEmail">Parent Email</Label>
-                      <Input
-                        id="parentEmail"
-                        type="email"
-                        value={profile.parentEmail}
-                        onChange={(e) => handleChange('parentEmail', e.target.value)}
-                        disabled={!isEditing}
-                        className="h-11"
-                      />
-                    </div>
-
-                    <div className="space-y-2">
-                      <Label htmlFor="emergency">Emergency Contact</Label>
-                      <Input
-                        id="emergency"
-                        type="tel"
-                        value={profile.emergencyContact}
-                        onChange={(e) => handleChange('emergencyContact', e.target.value)}
-                        disabled={!isEditing}
-                        className="h-11"
-                      />
+                      >
+                        <SelectTrigger className="h-11">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="Asia/Karachi">Pakistan (PKT)</SelectItem>
+                          <SelectItem value="Asia/Dubai">Dubai (GST)</SelectItem>
+                          <SelectItem value="UTC">UTC</SelectItem>
+                        </SelectContent>
+                      </Select>
                     </div>
                   </div>
                 </div>
