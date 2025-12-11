@@ -1,125 +1,69 @@
 import { useState } from 'react';
-import { Calendar, Check, X, Clock, Download, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Calendar, Check, X, Clock, Download, ChevronLeft, ChevronRight, Loader2, RefreshCw } from 'lucide-react';
 import { Card } from '../ui/card';
 import { Button } from '../ui/button';
 import { Badge } from '../ui/badge';
 import { Progress } from '../ui/progress';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
+import { Skeleton } from '../ui/skeleton';
+import { useAttendanceList, useAttendanceSummary, useSubjectAttendance, useAttendanceOverview } from '../../hooks/useStudentData';
 
-interface AttendanceRecord {
-  date: string;
-  status: 'present' | 'absent' | 'late' | 'leave';
-  subject?: string;
+// Skeleton loader
+function AttendanceSkeleton() {
+  return (
+    <div className="space-y-6">
+      <div className="flex items-center justify-between">
+        <div>
+          <Skeleton className="h-8 w-48 mb-2" />
+          <Skeleton className="h-4 w-64" />
+        </div>
+        <Skeleton className="h-10 w-40" />
+      </div>
+      <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+        {[1, 2, 3, 4, 5].map((i) => (
+          <Skeleton key={i} className="h-28" />
+        ))}
+      </div>
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <Skeleton className="lg:col-span-2 h-96" />
+        <Skeleton className="h-96" />
+      </div>
+    </div>
+  );
 }
-
-interface SubjectAttendance {
-  subject: string;
-  present: number;
-  absent: number;
-  late: number;
-  leave: number;
-  total: number;
-  percentage: number;
-  teacher: string;
-}
-
-const mockAttendanceRecords: AttendanceRecord[] = [
-  { date: '2024-11-01', status: 'present' },
-  { date: '2024-11-02', status: 'present' },
-  { date: '2024-11-03', status: 'present' },
-  { date: '2024-11-04', status: 'present' },
-  { date: '2024-11-05', status: 'late' },
-  { date: '2024-11-06', status: 'present' },
-  { date: '2024-10-30', status: 'present' },
-  { date: '2024-10-29', status: 'absent' },
-  { date: '2024-10-28', status: 'present' },
-  { date: '2024-10-27', status: 'present' },
-];
-
-const subjectAttendance: SubjectAttendance[] = [
-  {
-    subject: 'Mathematics',
-    present: 38,
-    absent: 2,
-    late: 1,
-    leave: 1,
-    total: 42,
-    percentage: 90,
-    teacher: 'Dr. Sarah Mitchell'
-  },
-  {
-    subject: 'Physics',
-    present: 40,
-    absent: 1,
-    late: 1,
-    leave: 0,
-    total: 42,
-    percentage: 95,
-    teacher: 'Prof. Michael Chen'
-  },
-  {
-    subject: 'Chemistry',
-    present: 41,
-    absent: 0,
-    late: 1,
-    leave: 0,
-    total: 42,
-    percentage: 98,
-    teacher: 'Dr. Robert Lee'
-  },
-  {
-    subject: 'English',
-    present: 39,
-    absent: 1,
-    late: 2,
-    leave: 0,
-    total: 42,
-    percentage: 93,
-    teacher: 'Ms. Emma Wilson'
-  },
-  {
-    subject: 'History',
-    present: 37,
-    absent: 3,
-    late: 1,
-    leave: 1,
-    total: 42,
-    percentage: 88,
-    teacher: 'Ms. Jennifer Brown'
-  },
-  {
-    subject: 'Biology',
-    present: 40,
-    absent: 1,
-    late: 0,
-    leave: 1,
-    total: 42,
-    percentage: 95,
-    teacher: 'Dr. Lisa Wang'
-  },
-];
 
 export function StudentAttendance() {
-  const [selectedMonth, setSelectedMonth] = useState('november');
   const [currentDate, setCurrentDate] = useState(new Date());
 
-  const overallStats = {
-    totalDays: mockAttendanceRecords.length,
-    present: mockAttendanceRecords.filter(r => r.status === 'present').length,
-    absent: mockAttendanceRecords.filter(r => r.status === 'absent').length,
-    late: mockAttendanceRecords.filter(r => r.status === 'late').length,
-    leave: mockAttendanceRecords.filter(r => r.status === 'leave').length,
+  // API Hooks - Based on student-panel-apis.json
+  // ATTENDANCE_02: /student/attendance/summary
+  const { data: summary, loading: summaryLoading, error: summaryError, refetch: refetchSummary } = useAttendanceSummary();
+  
+  // ATTENDANCE_06: /student/attendance/subjects
+  const { data: subjectAttendance, loading: subjectLoading } = useSubjectAttendance();
+  
+  // ATTENDANCE_01: /student/attendance
+  const startDate = new Date(currentDate.getFullYear(), currentDate.getMonth(), 1).toISOString().split('T')[0];
+  const endDate = new Date(currentDate.getFullYear(), currentDate.getMonth() + 1, 0).toISOString().split('T')[0];
+  const { data: attendanceRecords, loading: recordsLoading } = useAttendanceList({ startDate, endDate });
+
+  const loading = summaryLoading || subjectLoading || recordsLoading;
+
+  // Stats from API
+  const overallStats = summary || {
+    totalDays: 0,
+    present: 0,
+    absent: 0,
+    late: 0,
+    leave: 0,
+    percentage: 0,
   };
 
-  overallStats.present += overallStats.late; // Count late as present for percentage
-  const attendancePercentage = Math.round((overallStats.present / overallStats.totalDays) * 100);
-
   const getStatusColor = (status: string) => {
-    switch (status) {
-      case 'present': return 'bg-green-500';
-      case 'absent': return 'bg-red-500';
-      case 'late': return 'bg-orange-500';
-      case 'leave': return 'bg-purple-500';
+    switch (status?.toUpperCase()) {
+      case 'PRESENT': return 'bg-green-500';
+      case 'ABSENT': return 'bg-red-500';
+      case 'LATE': return 'bg-orange-500';
+      case 'LEAVE': return 'bg-purple-500';
       default: return 'bg-gray-300';
     }
   };
@@ -131,13 +75,12 @@ export function StudentAttendance() {
     const lastDay = new Date(year, month + 1, 0);
     const daysInMonth = lastDay.getDate();
     const startingDayOfWeek = firstDay.getDay();
-
     return { daysInMonth, startingDayOfWeek, year, month };
   };
 
   const getAttendanceForDate = (date: Date) => {
     const dateStr = date.toISOString().split('T')[0];
-    return mockAttendanceRecords.find(r => r.date === dateStr);
+    return attendanceRecords?.find(r => r.date === dateStr);
   };
 
   const renderCalendar = () => {
@@ -145,12 +88,10 @@ export function StudentAttendance() {
     const weeks = [];
     let days = [];
 
-    // Add empty cells for days before the first day of month
     for (let i = 0; i < startingDayOfWeek; i++) {
       days.push(<div key={`empty-${i}`} className="aspect-square" />);
     }
 
-    // Add days of the month
     for (let day = 1; day <= daysInMonth; day++) {
       const date = new Date(currentDate.getFullYear(), currentDate.getMonth(), day);
       const attendance = getAttendanceForDate(date);
@@ -183,6 +124,10 @@ export function StudentAttendance() {
     return weeks;
   };
 
+  if (loading) {
+    return <AttendanceSkeleton />;
+  }
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -192,11 +137,22 @@ export function StudentAttendance() {
           <p className="text-gray-600 dark:text-gray-400">
             Track your attendance record and history
           </p>
+          {summaryError && (
+            <p className="text-sm text-amber-600 dark:text-amber-400 mt-1">
+              Unable to load attendance data. Please try again.
+            </p>
+          )}
         </div>
-        <Button variant="outline">
-          <Download className="w-4 h-4 mr-2" />
-          Download Report
-        </Button>
+        <div className="flex gap-2">
+          <Button variant="outline" onClick={() => refetchSummary()}>
+            <RefreshCw className="w-4 h-4 mr-2" />
+            Refresh
+          </Button>
+          <Button variant="outline">
+            <Download className="w-4 h-4 mr-2" />
+            Download Report
+          </Button>
+        </div>
       </div>
 
       {/* Overall Stats */}
@@ -205,7 +161,7 @@ export function StudentAttendance() {
           <div className="flex items-center justify-between">
             <div>
               <p className="text-sm text-blue-700 dark:text-blue-300 mb-1">Overall</p>
-              <p className="text-3xl text-blue-900 dark:text-blue-100">{attendancePercentage}%</p>
+              <p className="text-3xl text-blue-900 dark:text-blue-100">{overallStats.percentage}%</p>
             </div>
             <div className="w-12 h-12 rounded-lg bg-blue-600 flex items-center justify-center">
               <Calendar className="w-6 h-6 text-white" />
@@ -333,25 +289,31 @@ export function StudentAttendance() {
         <Card className="p-6 bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700">
           <h3 className="text-lg text-gray-900 dark:text-white mb-4">Subject-wise Attendance</h3>
           <div className="space-y-4">
-            {subjectAttendance.map((subject) => (
-              <div key={subject.subject} className="space-y-2">
-                <div className="flex items-center justify-between">
-                  <span className="text-sm text-gray-900 dark:text-white">{subject.subject}</span>
-                  <Badge variant="outline" className={
-                    subject.percentage >= 90 ? 'bg-green-100 text-green-700 border-green-300 dark:bg-green-900/20 dark:text-green-400' :
-                    subject.percentage >= 75 ? 'bg-blue-100 text-blue-700 border-blue-300 dark:bg-blue-900/20 dark:text-blue-400' :
-                    'bg-red-100 text-red-700 border-red-300 dark:bg-red-900/20 dark:text-red-400'
-                  }>
-                    {subject.percentage}%
-                  </Badge>
+            {subjectAttendance && subjectAttendance.length > 0 ? (
+              subjectAttendance.map((subject) => (
+                <div key={subject.subject.id} className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm text-gray-900 dark:text-white">{subject.subject.name}</span>
+                    <Badge variant="outline" className={
+                      subject.percentage >= 90 ? 'bg-green-100 text-green-700 border-green-300 dark:bg-green-900/20 dark:text-green-400' :
+                      subject.percentage >= 75 ? 'bg-blue-100 text-blue-700 border-blue-300 dark:bg-blue-900/20 dark:text-blue-400' :
+                      'bg-red-100 text-red-700 border-red-300 dark:bg-red-900/20 dark:text-red-400'
+                    }>
+                      {subject.percentage}%
+                    </Badge>
+                  </div>
+                  <Progress value={subject.percentage} className="h-2" />
+                  <div className="flex items-center justify-between text-xs text-gray-500 dark:text-gray-400">
+                    <span>{subject.present}/{subject.totalClasses} classes</span>
+                    <span>{subject.absent} absent</span>
+                  </div>
                 </div>
-                <Progress value={subject.percentage} className="h-2" />
-                <div className="flex items-center justify-between text-xs text-gray-500 dark:text-gray-400">
-                  <span>{subject.present}/{subject.total} classes</span>
-                  <span>{subject.absent} absent</span>
-                </div>
+              ))
+            ) : (
+              <div className="text-center py-8 text-gray-500 dark:text-gray-400">
+                No subject data available
               </div>
-            ))}
+            )}
           </div>
         </Card>
       </div>
@@ -365,69 +327,57 @@ export function StudentAttendance() {
           <table className="w-full">
             <thead className="bg-gray-50 dark:bg-gray-900 border-b border-gray-200 dark:border-gray-700">
               <tr>
-                <th className="px-6 py-4 text-left text-xs text-gray-600 dark:text-gray-400 uppercase">
-                  Subject
-                </th>
-                <th className="px-6 py-4 text-center text-xs text-gray-600 dark:text-gray-400 uppercase">
-                  Present
-                </th>
-                <th className="px-6 py-4 text-center text-xs text-gray-600 dark:text-gray-400 uppercase">
-                  Absent
-                </th>
-                <th className="px-6 py-4 text-center text-xs text-gray-600 dark:text-gray-400 uppercase">
-                  Late
-                </th>
-                <th className="px-6 py-4 text-center text-xs text-gray-600 dark:text-gray-400 uppercase">
-                  Leave
-                </th>
-                <th className="px-6 py-4 text-center text-xs text-gray-600 dark:text-gray-400 uppercase">
-                  Total Classes
-                </th>
-                <th className="px-6 py-4 text-center text-xs text-gray-600 dark:text-gray-400 uppercase">
-                  Percentage
-                </th>
+                <th className="px-6 py-4 text-left text-xs text-gray-600 dark:text-gray-400 uppercase">Subject</th>
+                <th className="px-6 py-4 text-center text-xs text-gray-600 dark:text-gray-400 uppercase">Present</th>
+                <th className="px-6 py-4 text-center text-xs text-gray-600 dark:text-gray-400 uppercase">Absent</th>
+                <th className="px-6 py-4 text-center text-xs text-gray-600 dark:text-gray-400 uppercase">Late</th>
+                <th className="px-6 py-4 text-center text-xs text-gray-600 dark:text-gray-400 uppercase">Total</th>
+                <th className="px-6 py-4 text-center text-xs text-gray-600 dark:text-gray-400 uppercase">Percentage</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
-              {subjectAttendance.map((subject) => (
-                <tr key={subject.subject} className="hover:bg-gray-50 dark:hover:bg-gray-900/50">
-                  <td className="px-6 py-4">
-                    <div>
-                      <p className="text-sm text-gray-900 dark:text-white">{subject.subject}</p>
-                      <p className="text-xs text-gray-500 dark:text-gray-400">{subject.teacher}</p>
-                    </div>
-                  </td>
-                  <td className="px-6 py-4 text-center">
-                    <Badge variant="outline" className="bg-green-100 text-green-700 border-green-300 dark:bg-green-900/20 dark:text-green-400">
-                      {subject.present}
-                    </Badge>
-                  </td>
-                  <td className="px-6 py-4 text-center">
-                    <Badge variant="outline" className="bg-red-100 text-red-700 border-red-300 dark:bg-red-900/20 dark:text-red-400">
-                      {subject.absent}
-                    </Badge>
-                  </td>
-                  <td className="px-6 py-4 text-center">
-                    <Badge variant="outline" className="bg-orange-100 text-orange-700 border-orange-300 dark:bg-orange-900/20 dark:text-orange-400">
-                      {subject.late}
-                    </Badge>
-                  </td>
-                  <td className="px-6 py-4 text-center">
-                    <Badge variant="outline" className="bg-purple-100 text-purple-700 border-purple-300 dark:bg-purple-900/20 dark:text-purple-400">
-                      {subject.leave}
-                    </Badge>
-                  </td>
-                  <td className="px-6 py-4 text-center">
-                    <span className="text-sm text-gray-900 dark:text-white">{subject.total}</span>
-                  </td>
-                  <td className="px-6 py-4 text-center">
-                    <div className="flex items-center justify-center gap-2">
-                      <Progress value={subject.percentage} className="w-20" />
-                      <span className="text-sm text-gray-900 dark:text-white">{subject.percentage}%</span>
-                    </div>
+              {subjectAttendance && subjectAttendance.length > 0 ? (
+                subjectAttendance.map((subject) => (
+                  <tr key={subject.subject.id} className="hover:bg-gray-50 dark:hover:bg-gray-900/50">
+                    <td className="px-6 py-4">
+                      <div>
+                        <p className="text-sm text-gray-900 dark:text-white">{subject.subject.name}</p>
+                        <p className="text-xs text-gray-500 dark:text-gray-400">{subject.subject.teacher}</p>
+                      </div>
+                    </td>
+                    <td className="px-6 py-4 text-center">
+                      <Badge variant="outline" className="bg-green-100 text-green-700 border-green-300">
+                        {subject.present}
+                      </Badge>
+                    </td>
+                    <td className="px-6 py-4 text-center">
+                      <Badge variant="outline" className="bg-red-100 text-red-700 border-red-300">
+                        {subject.absent}
+                      </Badge>
+                    </td>
+                    <td className="px-6 py-4 text-center">
+                      <Badge variant="outline" className="bg-orange-100 text-orange-700 border-orange-300">
+                        {subject.late}
+                      </Badge>
+                    </td>
+                    <td className="px-6 py-4 text-center">
+                      <span className="text-sm text-gray-900 dark:text-white">{subject.totalClasses}</span>
+                    </td>
+                    <td className="px-6 py-4 text-center">
+                      <div className="flex items-center justify-center gap-2">
+                        <Progress value={subject.percentage} className="w-20" />
+                        <span className="text-sm text-gray-900 dark:text-white">{subject.percentage}%</span>
+                      </div>
+                    </td>
+                  </tr>
+                ))
+              ) : (
+                <tr>
+                  <td colSpan={6} className="px-6 py-12 text-center text-gray-500 dark:text-gray-400">
+                    No attendance records available
                   </td>
                 </tr>
-              ))}
+              )}
             </tbody>
           </table>
         </div>

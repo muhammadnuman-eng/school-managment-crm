@@ -1,0 +1,979 @@
+{
+  "title": "Student Panel - Complete API Documentation",
+  "version": "1.0.0",
+  "baseUrl": "http://localhost:3000/v1",
+  "description": "Complete list of all Student Panel APIs with endpoints, methods, payloads, headers, and instructions",
+  "authentication": {
+    "type": "Bearer Token",
+    "header": "Authorization: Bearer {token}",
+    "note": "All student endpoints (except auth endpoints) require JWT token in Authorization header"
+  },
+  "apis": [
+    {
+      "category": "Authentication",
+      "description": "Student login and authentication related APIs",
+      "endpoints": [
+        {
+          "id": "AUTH_01",
+          "name": "Student Login",
+          "method": "POST",
+          "route": "/auth/login",
+          "description": "Login as a student using email or admission number",
+          "headers": {
+            "Content-Type": "application/json"
+          },
+          "payload": {
+            "required": ["password"],
+            "optional": ["email", "admissionNumber", "portal", "device", "rememberMe"],
+            "example": {
+              "email": "student@example.com",
+              "password": "Student123!@#",
+              "portal": {
+                "role": "STUDENT",
+                "schoolId": "uuid-here"
+              },
+              "device": {
+                "deviceId": "device-123",
+                "ipAddress": "192.168.1.1",
+                "userAgent": "Mozilla/5.0..."
+              },
+              "rememberMe": true
+            },
+            "notes": [
+              "Either email OR admissionNumber is required",
+              "portal.role must be 'STUDENT'",
+              "device.deviceId is required if device object is provided"
+            ]
+          },
+          "response": {
+            "success": {
+              "code": 200,
+              "body": {
+                "accessToken": "jwt-token",
+                "refreshToken": "refresh-token",
+                "user": { "id": "uuid", "email": "student@example.com", "role": "STUDENT" }
+              }
+            }
+          }
+        },
+        {
+          "id": "AUTH_02",
+          "name": "Student Register",
+          "method": "POST",
+          "route": "/auth/register",
+          "description": "Register a new student account",
+          "headers": {
+            "Content-Type": "application/json"
+          },
+          "payload": {
+            "required": ["email", "password", "firstName", "lastName", "role", "device"],
+            "optional": ["schoolId", "phone"],
+            "example": {
+              "email": "newstudent@example.com",
+              "password": "Student123!@#",
+              "firstName": "John",
+              "lastName": "Doe",
+              "role": "STUDENT",
+              "schoolId": "uuid-here",
+              "phone": "+1234567890",
+              "device": {
+                "deviceId": "device-123",
+                "ipAddress": "192.168.1.1",
+                "userAgent": "Mozilla/5.0..."
+              }
+            },
+            "notes": [
+              "role must be 'STUDENT'",
+              "password must be 8-128 characters",
+              "device.deviceId is required"
+            ]
+          }
+        },
+        {
+          "id": "AUTH_03",
+          "name": "Discover Portals",
+          "method": "GET",
+          "route": "/auth/portals",
+          "description": "Discover available portals for an email",
+          "headers": {
+            "Content-Type": "application/json"
+          },
+          "queryParams": {
+            "required": ["email"],
+            "example": "?email=student@example.com"
+          }
+        },
+        {
+          "id": "AUTH_04",
+          "name": "Verify Two Factor",
+          "method": "POST",
+          "route": "/auth/2fa/verify",
+          "description": "Verify 2FA code after login",
+          "headers": {
+            "Content-Type": "application/json"
+          },
+          "payload": {
+            "required": ["sessionId", "userId", "method", "code"],
+            "optional": ["rememberDevice"],
+            "example": {
+              "sessionId": "uuid-here",
+              "userId": "uuid-here",
+              "method": "TOTP",
+              "code": "123456",
+              "rememberDevice": true
+            },
+            "notes": [
+              "method can be 'TOTP' or 'SMS'",
+              "code length: 4-64 characters"
+            ]
+          }
+        },
+        {
+          "id": "AUTH_05",
+          "name": "Resend Two Factor Code",
+          "method": "POST",
+          "route": "/auth/2fa/resend",
+          "description": "Resend 2FA verification code",
+          "headers": {
+            "Content-Type": "application/json"
+          },
+          "payload": {
+            "required": ["sessionId", "userId", "method"],
+            "example": {
+              "sessionId": "uuid-here",
+              "userId": "uuid-here",
+              "method": "TOTP"
+            }
+          }
+        },
+        {
+          "id": "AUTH_06",
+          "name": "Setup Two Factor",
+          "method": "POST",
+          "route": "/auth/2fa/setup",
+          "description": "Setup 2FA for student account",
+          "headers": {
+            "Authorization": "Bearer {token}",
+            "Content-Type": "application/json"
+          },
+          "payload": {
+            "optional": ["method", "enable", "code"],
+            "example": {
+              "method": "TOTP",
+              "enable": true,
+              "code": "123456"
+            }
+          }
+        },
+        {
+          "id": "AUTH_07",
+          "name": "Refresh Token",
+          "method": "POST",
+          "route": "/auth/refresh",
+          "description": "Refresh access token using refresh token",
+          "headers": {
+            "Content-Type": "application/json"
+          },
+          "payload": {
+            "required": ["refreshToken"],
+            "example": {
+              "refreshToken": "refresh-token-here"
+            }
+          }
+        },
+        {
+          "id": "AUTH_08",
+          "name": "Logout",
+          "method": "POST",
+          "route": "/auth/logout",
+          "description": "Logout from current or all devices",
+          "headers": {
+            "Authorization": "Bearer {token}",
+            "Content-Type": "application/json"
+          },
+          "payload": {
+            "optional": ["sessionId", "allDevices"],
+            "example": {
+              "sessionId": "uuid-here",
+              "allDevices": false
+            }
+          }
+        },
+        {
+          "id": "AUTH_09",
+          "name": "Forgot Password",
+          "method": "POST",
+          "route": "/auth/forgot-password",
+          "description": "Request password reset email",
+          "headers": {
+            "Content-Type": "application/json"
+          },
+          "payload": {
+            "required": ["email"],
+            "example": {
+              "email": "student@example.com"
+            }
+          }
+        },
+        {
+          "id": "AUTH_10",
+          "name": "Reset Password",
+          "method": "POST",
+          "route": "/auth/reset-password",
+          "description": "Reset password using reset token",
+          "headers": {
+            "Content-Type": "application/json"
+          },
+          "payload": {
+            "required": ["token", "newPassword"],
+            "example": {
+              "token": "reset-token-here",
+              "newPassword": "NewPassword123!@#"
+            },
+            "notes": [
+              "token length: 10-255 characters",
+              "newPassword length: 8-128 characters"
+            ]
+          }
+        },
+        {
+          "id": "AUTH_11",
+          "name": "Change Password",
+          "method": "POST",
+          "route": "/auth/change-password",
+          "description": "Change password while logged in",
+          "headers": {
+            "Authorization": "Bearer {token}",
+            "Content-Type": "application/json"
+          },
+          "payload": {
+            "required": ["currentPassword", "newPassword"],
+            "example": {
+              "currentPassword": "OldPassword123!@#",
+              "newPassword": "NewPassword123!@#"
+            },
+            "notes": [
+              "Both passwords must be 8-128 characters"
+            ]
+          }
+        },
+        {
+          "id": "AUTH_12",
+          "name": "Switch Role",
+          "method": "POST",
+          "route": "/auth/switch-role",
+          "description": "Switch between roles if user has multiple roles",
+          "headers": {
+            "Authorization": "Bearer {token}",
+            "Content-Type": "application/json"
+          },
+          "payload": {
+            "required": ["role"],
+            "optional": ["schoolId"],
+            "example": {
+              "role": "STUDENT",
+              "schoolId": "uuid-here"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "category": "Profile",
+      "description": "Student profile management APIs",
+      "endpoints": [
+        {
+          "id": "PROFILE_01",
+          "name": "Get Profile",
+          "method": "GET",
+          "route": "/student/profile",
+          "description": "Get current student profile information",
+          "headers": {
+            "Authorization": "Bearer {token}",
+            "Content-Type": "application/json"
+          },
+          "payload": null,
+          "response": {
+            "success": {
+              "code": 200,
+              "body": {
+                "id": "uuid",
+                "firstName": "John",
+                "lastName": "Doe",
+                "email": "student@example.com",
+                "phone": "+1234567890",
+                "address": "123 Street",
+                "medicalInfo": "None",
+                "student": {
+                  "admissionNumber": "STU001",
+                  "rollNumber": "R001"
+                }
+              }
+            }
+          }
+        },
+        {
+          "id": "PROFILE_02",
+          "name": "Update Profile",
+          "method": "PATCH",
+          "route": "/student/profile",
+          "description": "Update student profile information",
+          "headers": {
+            "Authorization": "Bearer {token}",
+            "Content-Type": "application/json"
+          },
+          "payload": {
+            "optional": ["address", "medicalInfo", "phone", "preferredLocale", "timezone"],
+            "example": {
+              "address": "456 New Street",
+              "medicalInfo": "Allergic to peanuts",
+              "phone": "+1234567890",
+              "preferredLocale": "en-US",
+              "timezone": "America/New_York"
+            },
+            "notes": [
+              "address max length: 200",
+              "medicalInfo max length: 200",
+              "phone max length: 15",
+              "preferredLocale max length: 10",
+              "timezone max length: 64"
+            ]
+          }
+        },
+        {
+          "id": "PROFILE_03",
+          "name": "Get Dashboard",
+          "method": "GET",
+          "route": "/student/dashboard",
+          "description": "Get student dashboard data (overview, stats, etc.)",
+          "headers": {
+            "Authorization": "Bearer {token}",
+            "Content-Type": "application/json"
+          },
+          "payload": null
+        },
+        {
+          "id": "PROFILE_04",
+          "name": "Get Schedule",
+          "method": "GET",
+          "route": "/student/schedule",
+          "description": "Get student class schedule",
+          "headers": {
+            "Authorization": "Bearer {token}",
+            "Content-Type": "application/json"
+          },
+          "queryParams": {
+            "optional": ["weekOffset"],
+            "example": "?weekOffset=0",
+            "notes": [
+              "weekOffset: 0 = current week, 1 = next week, -1 = previous week"
+            ]
+          }
+        },
+        {
+          "id": "PROFILE_05",
+          "name": "Get Grades",
+          "method": "GET",
+          "route": "/student/grades",
+          "description": "Get student grades and academic performance",
+          "headers": {
+            "Authorization": "Bearer {token}",
+            "Content-Type": "application/json"
+          },
+          "payload": null
+        }
+      ]
+    },
+    {
+      "category": "Assignments",
+      "description": "Student assignment management APIs",
+      "endpoints": [
+        {
+          "id": "ASSIGNMENT_01",
+          "name": "Get Assignment Statistics",
+          "method": "GET",
+          "route": "/student/assignments/statistics",
+          "description": "Get assignment statistics (pending, submitted, graded counts)",
+          "headers": {
+            "Authorization": "Bearer {token}",
+            "Content-Type": "application/json"
+          },
+          "payload": null
+        },
+        {
+          "id": "ASSIGNMENT_02",
+          "name": "List Assignments",
+          "method": "GET",
+          "route": "/student/assignments",
+          "description": "Get list of assignments with filters",
+          "headers": {
+            "Authorization": "Bearer {token}",
+            "Content-Type": "application/json"
+          },
+          "queryParams": {
+            "optional": ["subjectId", "search", "status", "filter", "page", "limit"],
+            "example": "?subjectId=uuid&status=PENDING&filter=pending&page=1&limit=10",
+            "notes": [
+              "status: PENDING, SUBMITTED, GRADED, LATE",
+              "filter: 'pending', 'submitted', 'graded', 'all'",
+              "page: default 1, min 1",
+              "limit: default 10, min 1, max 50"
+            ]
+          }
+        },
+        {
+          "id": "ASSIGNMENT_03",
+          "name": "Get Assignment Details",
+          "method": "GET",
+          "route": "/student/assignments/:id",
+          "description": "Get detailed information about a specific assignment",
+          "headers": {
+            "Authorization": "Bearer {token}",
+            "Content-Type": "application/json"
+          },
+          "pathParams": {
+            "required": ["id"],
+            "example": "/student/assignments/uuid-here"
+          }
+        },
+        {
+          "id": "ASSIGNMENT_04",
+          "name": "Submit Assignment",
+          "method": "POST",
+          "route": "/student/assignments/submit",
+          "description": "Submit an assignment",
+          "headers": {
+            "Authorization": "Bearer {token}",
+            "Content-Type": "application/json"
+          },
+          "payload": {
+            "required": ["assignmentId"],
+            "optional": ["submissionText", "fileUrl", "fileName"],
+            "example": {
+              "assignmentId": "uuid-here",
+              "submissionText": "My assignment submission text",
+              "fileUrl": "https://example.com/file.pdf",
+              "fileName": "assignment.pdf"
+            },
+            "notes": [
+              "fileName max length: 150 characters"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "category": "Attendance",
+      "description": "Student attendance tracking APIs",
+      "endpoints": [
+        {
+          "id": "ATTENDANCE_01",
+          "name": "List Attendance",
+          "method": "GET",
+          "route": "/student/attendance",
+          "description": "Get attendance records with date filters",
+          "headers": {
+            "Authorization": "Bearer {token}",
+            "Content-Type": "application/json"
+          },
+          "queryParams": {
+            "optional": ["startDate", "endDate"],
+            "example": "?startDate=2025-01-01&endDate=2025-01-31",
+            "notes": [
+              "Date format: YYYY-MM-DD (ISO 8601)"
+            ]
+          }
+        },
+        {
+          "id": "ATTENDANCE_02",
+          "name": "Get Monthly Summary",
+          "method": "GET",
+          "route": "/student/attendance/summary",
+          "description": "Get monthly attendance summary",
+          "headers": {
+            "Authorization": "Bearer {token}",
+            "Content-Type": "application/json"
+          },
+          "payload": null
+        },
+        {
+          "id": "ATTENDANCE_03",
+          "name": "List Leave Requests",
+          "method": "GET",
+          "route": "/student/attendance/leave",
+          "description": "Get list of leave requests",
+          "headers": {
+            "Authorization": "Bearer {token}",
+            "Content-Type": "application/json"
+          },
+          "payload": null
+        },
+        {
+          "id": "ATTENDANCE_04",
+          "name": "Create Leave Request",
+          "method": "POST",
+          "route": "/student/attendance/leave",
+          "description": "Create a new leave request",
+          "headers": {
+            "Authorization": "Bearer {token}",
+            "Content-Type": "application/json"
+          },
+          "payload": {
+            "required": ["leaveType", "startDate", "endDate"],
+            "optional": ["reason"],
+            "example": {
+              "leaveType": "Sick Leave",
+              "startDate": "2025-01-15",
+              "endDate": "2025-01-17",
+              "reason": "Fever and cold"
+            },
+            "notes": [
+              "leaveType max length: 50",
+              "reason max length: 500",
+              "Date format: YYYY-MM-DD"
+            ]
+          }
+        },
+        {
+          "id": "ATTENDANCE_05",
+          "name": "Get Attendance Overview",
+          "method": "GET",
+          "route": "/student/attendance/overview",
+          "description": "Get overall attendance statistics",
+          "headers": {
+            "Authorization": "Bearer {token}",
+            "Content-Type": "application/json"
+          },
+          "payload": null
+        },
+        {
+          "id": "ATTENDANCE_06",
+          "name": "Get Subject-wise Attendance",
+          "method": "GET",
+          "route": "/student/attendance/subjects",
+          "description": "Get attendance breakdown by subject",
+          "headers": {
+            "Authorization": "Bearer {token}",
+            "Content-Type": "application/json"
+          },
+          "payload": null
+        },
+        {
+          "id": "ATTENDANCE_07",
+          "name": "Get Subject Detailed Attendance",
+          "method": "GET",
+          "route": "/student/attendance/subjects/:subjectId",
+          "description": "Get detailed attendance for a specific subject",
+          "headers": {
+            "Authorization": "Bearer {token}",
+            "Content-Type": "application/json"
+          },
+          "pathParams": {
+            "required": ["subjectId"],
+            "example": "/student/attendance/subjects/uuid-here"
+          }
+        }
+      ]
+    },
+    {
+      "category": "Communication",
+      "description": "Student communication APIs (announcements, messages)",
+      "endpoints": [
+        {
+          "id": "COMM_01",
+          "name": "Get Announcements",
+          "method": "GET",
+          "route": "/student/communications/announcements",
+          "description": "Get all announcements for student",
+          "headers": {
+            "Authorization": "Bearer {token}",
+            "Content-Type": "application/json"
+          },
+          "payload": null
+        },
+        {
+          "id": "COMM_02",
+          "name": "Get Messages",
+          "method": "GET",
+          "route": "/student/communications/messages",
+          "description": "Get all messages (sent and received)",
+          "headers": {
+            "Authorization": "Bearer {token}",
+            "Content-Type": "application/json"
+          },
+          "payload": null
+        },
+        {
+          "id": "COMM_03",
+          "name": "Send Message",
+          "method": "POST",
+          "route": "/student/communications/messages",
+          "description": "Send a message to teacher/admin",
+          "headers": {
+            "Authorization": "Bearer {token}",
+            "Content-Type": "application/json"
+          },
+          "payload": {
+            "required": ["recipientUserId", "content"],
+            "optional": ["subject", "priority"],
+            "example": {
+              "recipientUserId": "uuid-here",
+              "subject": "Question about assignment",
+              "content": "I have a question regarding the math assignment.",
+              "priority": "NORMAL"
+            },
+            "notes": [
+              "subject max length: 150",
+              "priority: HIGH, NORMAL, LOW"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "category": "Documents",
+      "description": "Student documents and resources APIs",
+      "endpoints": [
+        {
+          "id": "DOC_01",
+          "name": "List Documents",
+          "method": "GET",
+          "route": "/student/documents",
+          "description": "Get list of available documents/resources",
+          "headers": {
+            "Authorization": "Bearer {token}",
+            "Content-Type": "application/json"
+          },
+          "payload": null
+        }
+      ]
+    },
+    {
+      "category": "Exams",
+      "description": "Student exam and performance APIs",
+      "endpoints": [
+        {
+          "id": "EXAM_01",
+          "name": "Get Exam Schedule",
+          "method": "GET",
+          "route": "/student/exams/schedule",
+          "description": "Get exam schedule",
+          "headers": {
+            "Authorization": "Bearer {token}",
+            "Content-Type": "application/json"
+          },
+          "payload": null
+        },
+        {
+          "id": "EXAM_02",
+          "name": "Download Exam Schedule",
+          "method": "GET",
+          "route": "/student/exams/schedule/download",
+          "description": "Download exam schedule as JSON file",
+          "headers": {
+            "Authorization": "Bearer {token}"
+          },
+          "payload": null,
+          "response": {
+            "success": {
+              "code": 200,
+              "contentType": "application/json",
+              "disposition": "attachment; filename=\"exam-schedule.json\""
+            }
+          }
+        },
+        {
+          "id": "EXAM_03",
+          "name": "Get Exam Marks",
+          "method": "GET",
+          "route": "/student/exams/marks",
+          "description": "Get exam marks",
+          "headers": {
+            "Authorization": "Bearer {token}",
+            "Content-Type": "application/json"
+          },
+          "queryParams": {
+            "optional": ["examId"],
+            "example": "?examId=uuid-here"
+          }
+        },
+        {
+          "id": "EXAM_04",
+          "name": "Get Exam Report Card",
+          "method": "GET",
+          "route": "/student/exams/:examId/report",
+          "description": "Get detailed report card for a specific exam",
+          "headers": {
+            "Authorization": "Bearer {token}",
+            "Content-Type": "application/json"
+          },
+          "pathParams": {
+            "required": ["examId"],
+            "example": "/student/exams/uuid-here/report"
+          }
+        },
+        {
+          "id": "EXAM_05",
+          "name": "Get Performance Overview",
+          "method": "GET",
+          "route": "/student/exams/performance/overview",
+          "description": "Get overall performance statistics",
+          "headers": {
+            "Authorization": "Bearer {token}",
+            "Content-Type": "application/json"
+          },
+          "payload": null
+        },
+        {
+          "id": "EXAM_06",
+          "name": "Get Subject-wise Performance",
+          "method": "GET",
+          "route": "/student/exams/performance/subjects",
+          "description": "Get performance breakdown by subject",
+          "headers": {
+            "Authorization": "Bearer {token}",
+            "Content-Type": "application/json"
+          },
+          "payload": null
+        },
+        {
+          "id": "EXAM_07",
+          "name": "Get Grade Distribution",
+          "method": "GET",
+          "route": "/student/exams/performance/distribution",
+          "description": "Get grade distribution statistics",
+          "headers": {
+            "Authorization": "Bearer {token}",
+            "Content-Type": "application/json"
+          },
+          "payload": null
+        },
+        {
+          "id": "EXAM_08",
+          "name": "Get Exam Reports",
+          "method": "GET",
+          "route": "/student/exams/reports",
+          "description": "Get list of all exam reports",
+          "headers": {
+            "Authorization": "Bearer {token}",
+            "Content-Type": "application/json"
+          },
+          "payload": null
+        },
+        {
+          "id": "EXAM_09",
+          "name": "Download Report Card",
+          "method": "GET",
+          "route": "/student/exams/:examId/report/download",
+          "description": "Download report card as JSON file",
+          "headers": {
+            "Authorization": "Bearer {token}"
+          },
+          "pathParams": {
+            "required": ["examId"],
+            "example": "/student/exams/uuid-here/report/download"
+          },
+          "response": {
+            "success": {
+              "code": 200,
+              "contentType": "application/json",
+              "disposition": "attachment; filename=\"report-card-{examId}.json\""
+            }
+          }
+        }
+      ]
+    },
+    {
+      "category": "Fees",
+      "description": "Student fee management APIs",
+      "endpoints": [
+        {
+          "id": "FEE_01",
+          "name": "Get Fee Overview",
+          "method": "GET",
+          "route": "/student/fees/overview",
+          "description": "Get fee overview (total, paid, pending amounts)",
+          "headers": {
+            "Authorization": "Bearer {token}",
+            "Content-Type": "application/json"
+          },
+          "payload": null
+        },
+        {
+          "id": "FEE_02",
+          "name": "List Fees",
+          "method": "GET",
+          "route": "/student/fees",
+          "description": "Get list of all fees",
+          "headers": {
+            "Authorization": "Bearer {token}",
+            "Content-Type": "application/json"
+          },
+          "queryParams": {
+            "optional": ["status"],
+            "example": "?status=PENDING",
+            "notes": [
+              "status: PENDING, PARTIAL, PAID, OVERDUE"
+            ]
+          }
+        },
+        {
+          "id": "FEE_03",
+          "name": "Get Payments",
+          "method": "GET",
+          "route": "/student/fees/payments",
+          "description": "Get list of all fee payments",
+          "headers": {
+            "Authorization": "Bearer {token}",
+            "Content-Type": "application/json"
+          },
+          "payload": null
+        },
+        {
+          "id": "FEE_04",
+          "name": "Get Invoice",
+          "method": "GET",
+          "route": "/student/fees/:feeId",
+          "description": "Get detailed invoice for a specific fee",
+          "headers": {
+            "Authorization": "Bearer {token}",
+            "Content-Type": "application/json"
+          },
+          "pathParams": {
+            "required": ["feeId"],
+            "example": "/student/fees/uuid-here"
+          }
+        },
+        {
+          "id": "FEE_05",
+          "name": "Download Invoice",
+          "method": "GET",
+          "route": "/student/fees/:feeId/invoice/download",
+          "description": "Download invoice as JSON file",
+          "headers": {
+            "Authorization": "Bearer {token}"
+          },
+          "pathParams": {
+            "required": ["feeId"],
+            "example": "/student/fees/uuid-here/invoice/download"
+          },
+          "response": {
+            "success": {
+              "code": 200,
+              "contentType": "application/json",
+              "disposition": "attachment; filename=\"invoice-{invoiceNumber}.json\""
+            }
+          }
+        },
+        {
+          "id": "FEE_06",
+          "name": "Pay Fee",
+          "method": "POST",
+          "route": "/student/fees/:feeId/pay",
+          "description": "Make a fee payment",
+          "headers": {
+            "Authorization": "Bearer {token}",
+            "Content-Type": "application/json"
+          },
+          "pathParams": {
+            "required": ["feeId"],
+            "example": "/student/fees/uuid-here/pay"
+          },
+          "payload": {
+            "required": ["paymentMethod"],
+            "optional": ["amount"],
+            "example": {
+              "amount": 5000,
+              "paymentMethod": "CASH"
+            },
+            "notes": [
+              "paymentMethod: CASH, BANK_TRANSFER, CARD, JAZZCASH, EASYPAISA, OTHER",
+              "If amount not provided, pays remaining due amount"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "category": "Logistics",
+      "description": "Student transport and hostel information APIs",
+      "endpoints": [
+        {
+          "id": "LOG_01",
+          "name": "Get Transport Info",
+          "method": "GET",
+          "route": "/student/logistics/transport",
+          "description": "Get transport/vehicle information",
+          "headers": {
+            "Authorization": "Bearer {token}",
+            "Content-Type": "application/json"
+          },
+          "payload": null
+        },
+        {
+          "id": "LOG_02",
+          "name": "Get Hostel Info",
+          "method": "GET",
+          "route": "/student/logistics/hostel",
+          "description": "Get hostel accommodation information",
+          "headers": {
+            "Authorization": "Bearer {token}",
+            "Content-Type": "application/json"
+          },
+          "payload": null
+        }
+      ]
+    }
+  ],
+  "commonHeaders": {
+    "required": {
+      "Authorization": "Bearer {token}",
+      "Content-Type": "application/json"
+    },
+    "notes": [
+      "All endpoints except auth endpoints require Authorization header",
+      "Token is obtained from login endpoint",
+      "Content-Type is required for POST/PATCH requests"
+    ]
+  },
+  "errorResponses": {
+    "401": {
+      "message": "Unauthorized - Invalid or missing token",
+      "body": {
+        "statusCode": 401,
+        "message": "Unauthorized"
+      }
+    },
+    "403": {
+      "message": "Forbidden - Student access required",
+      "body": {
+        "statusCode": 403,
+        "message": "Student access required"
+      }
+    },
+    "404": {
+      "message": "Not Found - Resource not found",
+      "body": {
+        "statusCode": 404,
+        "message": "Resource not found"
+      }
+    },
+    "400": {
+      "message": "Bad Request - Validation error",
+      "body": {
+        "statusCode": 400,
+        "message": ["validation error messages"],
+        "error": "Bad Request"
+      }
+    }
+  },
+  "notes": [
+    "Base URL includes /v1 prefix",
+    "All dates should be in ISO 8601 format (YYYY-MM-DD)",
+    "UUIDs are required for all ID parameters",
+    "Pagination: page starts from 1, limit has max values as specified",
+    "Token expires after 15 minutes (default), use refresh token to get new access token",
+    "All student endpoints automatically filter data for the logged-in student"
+  ]
+}
+
