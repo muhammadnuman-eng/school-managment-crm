@@ -189,7 +189,9 @@ export function Teachers() {
     const newStatus: Teacher['status'] = checked ? 'Active' : 'Inactive';
     setTeachers(teachers.map(t => t.id === teacher.id ? { ...t, status: newStatus } : t));
     try {
-      await adminService.updateTeacher(teacher.id, { status: newStatus });
+      // Convert to uppercase for API (API expects ACTIVE/INACTIVE)
+      const apiStatus = checked ? 'ACTIVE' : 'INACTIVE';
+      await adminService.updateTeacher(teacher.id, { status: apiStatus as any });
     } catch (error: any) {
       // revert on failure
       setTeachers(teachers.map(t => t.id === teacher.id ? { ...t, status: teacher.status } : t));
@@ -840,7 +842,7 @@ export function Teachers() {
                             <Switch
                               checked={teacher.status === 'Active'}
                               onCheckedChange={(checked) => handleToggleStatus(teacher, checked as boolean)}
-                              className="data-[state=checked]:bg-green-500 dark:data-[state=checked]:bg-green-600"
+                              className="status-toggle-switch"
                             />
                           </TableCell>
                           <TableCell className="text-right">

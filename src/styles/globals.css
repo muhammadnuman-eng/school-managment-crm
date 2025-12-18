@@ -125,7 +125,12 @@
   }
 
   body {
-    @apply bg-background text-foreground;
+    @apply bg-white text-foreground;
+    background-color: #ffffff !important;
+  }
+
+  html {
+    background-color: #ffffff !important;
   }
 }
 
@@ -186,4 +191,42 @@
 
 html {
   font-size: var(--font-size);
+}
+
+/* Custom switch colors for status toggles - override default colors with higher specificity */
+.status-toggle-switch[data-state="checked"],
+.status-toggle-switch[data-state="checked"] * {
+  background-color: #22c55e !important; /* green-500 */
+}
+
+.status-toggle-switch[data-state="unchecked"],
+.status-toggle-switch[data-state="unchecked"] * {
+  background-color: #4b5563 !important; /* gray-600 dark grey */
+}
+
+.dark .status-toggle-switch[data-state="checked"],
+.dark .status-toggle-switch[data-state="checked"] * {
+  background-color: #16a34a !important; /* green-600 */
+}
+
+.dark .status-toggle-switch[data-state="unchecked"],
+.dark .status-toggle-switch[data-state="unchecked"] * {
+  background-color: #4b5563 !important; /* gray-600 dark grey */
+}
+
+/* Ensure the switch root element gets the green background */
+[data-slot="switch"].status-toggle-switch[data-state="checked"] {
+  background-color: #22c55e !important;
+}
+
+[data-slot="switch"].status-toggle-switch[data-state="unchecked"] {
+  background-color: #4b5563 !important;
+}
+
+.dark [data-slot="switch"].status-toggle-switch[data-state="checked"] {
+  background-color: #16a34a !important;
+}
+
+.dark [data-slot="switch"].status-toggle-switch[data-state="unchecked"] {
+  background-color: #4b5563 !important;
 }

@@ -1,13 +1,13 @@
 import { useState, useEffect, useCallback } from 'react';
-import { 
-  MessageSquare, 
-  Send, 
-  Megaphone, 
-  Users, 
-  Mail, 
-  Bell, 
-  Search, 
-  Filter, 
+import {
+  MessageSquare,
+  Send,
+  Megaphone,
+  Users,
+  Mail,
+  Bell,
+  Search,
+  Filter,
   Plus,
   Download,
   Eye,
@@ -66,7 +66,7 @@ export function Communication() {
   const [showTemplateDialog, setShowTemplateDialog] = useState(false);
   const [showBroadcastDialog, setShowBroadcastDialog] = useState(false);
   const [activeTab, setActiveTab] = useState('messages');
-  
+
   // API state
   const [isLoading, setIsLoading] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -83,13 +83,13 @@ export function Communication() {
   const [messageSubject, setMessageSubject] = useState('');
   const [messageContent, setMessageContent] = useState('');
   const [messagePriority, setMessagePriority] = useState<'LOW' | 'MEDIUM' | 'HIGH' | 'URGENT'>('MEDIUM');
-  
+
   const [announcementTitle, setAnnouncementTitle] = useState('');
   const [announcementContent, setAnnouncementContent] = useState('');
   const [announcementCategory, setAnnouncementCategory] = useState<'GENERAL' | 'ACADEMIC' | 'EVENT' | 'EMERGENCY' | 'HOLIDAY'>('GENERAL');
   const [announcementPriority, setAnnouncementPriority] = useState<'LOW' | 'MEDIUM' | 'HIGH' | 'URGENT'>('MEDIUM');
   const [announcementTargetAudience, setAnnouncementTargetAudience] = useState<'ALL' | 'STUDENTS' | 'TEACHERS' | 'PARENTS' | 'SPECIFIC_CLASS' | 'SPECIFIC_SECTION'>('ALL');
-  
+
   const [templateName, setTemplateName] = useState('');
   const [templateType, setTemplateType] = useState('');
   const [templateSubject, setTemplateSubject] = useState('');
@@ -120,22 +120,30 @@ export function Communication() {
   }, []);
 
   const fetchAnnouncements = useCallback(async () => {
-    console.log('fetchAnnouncements called');
     setIsLoading(true);
     try {
-      console.log('Calling adminService.getAnnouncements()...');
       const response = await adminService.getAnnouncements();
-      console.log('Announcements API response:', response);
-      setAnnouncements(response.announcements || []);
-      console.log('Announcements set:', response.announcements?.length || 0);
+      console.log('Full API response:', response); // Ab response hi array hai
+
+      // Use response directly (not response.data)
+      const announcementsList = response.map(item => ({
+        ...item,
+        createdByName: `${item.createdByUser?.firstName || ''} ${item.createdByUser?.lastName || ''}`.trim() || 'Admin',
+        views: item.viewsCount || 0,
+      }));
+
+      setAnnouncements(announcementsList);
+      console.log('Announcements set:', announcementsList);
     } catch (error: any) {
       console.error('Error fetching announcements:', error);
-      toast.error('Failed to load announcements');
+      toast.error(error.message || 'Failed to load announcements');
       setAnnouncements([]);
     } finally {
       setIsLoading(false);
     }
   }, []);
+
+
 
   const fetchTemplates = useCallback(async () => {
     setIsLoading(true);
@@ -396,19 +404,19 @@ export function Communication() {
   };
 
   const formatDateTime = (date: string, time?: string) => {
-    const dateStr = new Date(date).toLocaleDateString('en-PK', { 
+    const dateStr = new Date(date).toLocaleDateString('en-PK', {
       day: '2-digit',
-      month: 'short', 
-      year: 'numeric' 
+      month: 'short',
+      year: 'numeric'
     });
     return time ? `${dateStr} at ${time}` : dateStr;
   };
 
   const formatDateOnly = (date: string) => {
-    return new Date(date).toLocaleDateString('en-PK', { 
+    return new Date(date).toLocaleDateString('en-PK', {
       day: '2-digit',
-      month: 'short', 
-      year: 'numeric' 
+      month: 'short',
+      year: 'numeric'
     });
   };
 
@@ -422,7 +430,7 @@ export function Communication() {
             <h1 className="text-3xl text-gray-900 dark:text-white mb-2 tracking-tight">Communication Hub</h1>
             <p className="text-gray-600 dark:text-gray-400 text-lg">Manage messages, announcements, and notifications</p>
           </div>
-          <Button 
+          <Button
             onClick={() => setShowComposeDialog(true)}
             className="bg-gradient-to-r from-[#0A66C2] to-blue-600 hover:from-[#0052A3] hover:to-blue-700 shadow-lg"
           >
@@ -497,7 +505,7 @@ export function Communication() {
           <div className="group relative">
             <div className="absolute inset-0 bg-gradient-to-br from-gray-100 to-gray-200 dark:from-gray-800 dark:to-gray-900 rounded-3xl transform translate-y-1 opacity-30"></div>
             <div className="absolute inset-0 bg-gradient-to-br from-gray-50 to-gray-100 dark:from-gray-800 dark:to-gray-900 rounded-3xl transform translate-y-0.5 opacity-50"></div>
-            
+
             <Card className="relative rounded-3xl p-8 border-0 shadow-xl bg-white dark:bg-gray-900">
               <div className="absolute inset-0 bg-gradient-to-br from-white/50 to-transparent dark:from-white/5 rounded-3xl pointer-events-none"></div>
               <div className="relative">
@@ -601,13 +609,13 @@ export function Communication() {
           <div className="group relative">
             <div className="absolute inset-0 bg-gradient-to-br from-gray-100 to-gray-200 dark:from-gray-800 dark:to-gray-900 rounded-3xl transform translate-y-1 opacity-30"></div>
             <div className="absolute inset-0 bg-gradient-to-br from-gray-50 to-gray-100 dark:from-gray-800 dark:to-gray-900 rounded-3xl transform translate-y-0.5 opacity-50"></div>
-            
+
             <Card className="relative rounded-3xl p-8 border-0 shadow-xl bg-white dark:bg-gray-900">
               <div className="absolute inset-0 bg-gradient-to-br from-white/50 to-transparent dark:from-white/5 rounded-3xl pointer-events-none"></div>
               <div className="relative">
                 <div className="flex items-center justify-between mb-6">
                   <h3 className="text-xl text-gray-900 dark:text-white tracking-tight">All Announcements</h3>
-                  <Button 
+                  <Button
                     onClick={() => setShowAnnouncementDialog(true)}
                     className="bg-gradient-to-r from-purple-500 to-purple-600 hover:from-purple-600 hover:to-purple-700 shadow-lg rounded-xl"
                   >
@@ -679,7 +687,7 @@ export function Communication() {
                               </div>
                             </TableCell>
                             <TableCell>
-                              <Badge 
+                              <Badge
                                 variant="outline"
                                 className="bg-green-100 text-green-700 border-green-200"
                               >
@@ -706,7 +714,7 @@ export function Communication() {
                                     <Edit className="w-4 h-4 mr-2" />
                                     Edit
                                   </DropdownMenuItem>
-                                  <DropdownMenuItem 
+                                  <DropdownMenuItem
                                     className="text-red-600"
                                     onClick={() => handleDeleteAnnouncement(announcement.id)}
                                   >
@@ -732,13 +740,13 @@ export function Communication() {
           <div className="group relative">
             <div className="absolute inset-0 bg-gradient-to-br from-gray-100 to-gray-200 dark:from-gray-800 dark:to-gray-900 rounded-3xl transform translate-y-1 opacity-30"></div>
             <div className="absolute inset-0 bg-gradient-to-br from-gray-50 to-gray-100 dark:from-gray-800 dark:to-gray-900 rounded-3xl transform translate-y-0.5 opacity-50"></div>
-            
+
             <Card className="relative rounded-3xl p-8 border-0 shadow-xl bg-white dark:bg-gray-900">
               <div className="absolute inset-0 bg-gradient-to-br from-white/50 to-transparent dark:from-white/5 rounded-3xl pointer-events-none"></div>
               <div className="relative">
                 <div className="flex items-center justify-between mb-6">
                   <h3 className="text-xl text-gray-900 dark:text-white tracking-tight">Broadcast History</h3>
-                  <Button 
+                  <Button
                     onClick={() => setShowBroadcastDialog(true)}
                     className="bg-gradient-to-r from-green-500 to-emerald-600 hover:from-green-600 hover:to-emerald-700 shadow-lg rounded-xl"
                   >
@@ -780,13 +788,13 @@ export function Communication() {
           <div className="group relative">
             <div className="absolute inset-0 bg-gradient-to-br from-gray-100 to-gray-200 dark:from-gray-800 dark:to-gray-900 rounded-3xl transform translate-y-1 opacity-30"></div>
             <div className="absolute inset-0 bg-gradient-to-br from-gray-50 to-gray-100 dark:from-gray-800 dark:to-gray-900 rounded-3xl transform translate-y-0.5 opacity-50"></div>
-            
+
             <Card className="relative rounded-3xl p-8 border-0 shadow-xl bg-white dark:bg-gray-900">
               <div className="absolute inset-0 bg-gradient-to-br from-white/50 to-transparent dark:from-white/5 rounded-3xl pointer-events-none"></div>
               <div className="relative">
                 <div className="flex items-center justify-between mb-6">
                   <h3 className="text-xl text-gray-900 dark:text-white tracking-tight">Message Templates</h3>
-                  <Button 
+                  <Button
                     onClick={() => setShowTemplateDialog(true)}
                     className="bg-gradient-to-r from-orange-500 to-amber-600 hover:from-orange-600 hover:to-amber-700 shadow-lg rounded-xl"
                   >
@@ -874,12 +882,16 @@ export function Communication() {
             <div className="space-y-4 py-4 pr-4">
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
-                  <Label htmlFor="recipient-type">Recipient Type</Label>
-                  <Select onValueChange={(val) => {
-                    if (val && val !== 'all') {
-                      fetchRecipients(val as 'STUDENT' | 'TEACHER' | 'PARENT');
-                    }
-                  }}>
+                  <Label>Recipient Type</Label>
+                  <Select
+                    onValueChange={(role) => {
+                      setMessageRecipientId(''); // Reset selected recipient
+                      setRecipients([]); // Clear recipients list
+                      if (role && role !== 'all') {
+                        fetchRecipients(role as 'STUDENT' | 'TEACHER' | 'PARENT');
+                      }
+                    }}
+                  >
                     <SelectTrigger>
                       <SelectValue placeholder="Select recipient type" />
                     </SelectTrigger>
@@ -890,36 +902,66 @@ export function Communication() {
                     </SelectContent>
                   </Select>
                 </div>
+
                 <div className="space-y-2">
-                  <Label htmlFor="recipient">Select Recipient</Label>
-                  <Select value={messageRecipientId} onValueChange={setMessageRecipientId}>
-                    <SelectTrigger>
-                      <SelectValue placeholder="Choose recipient" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {recipients.map(recipient => (
-                        <SelectItem key={recipient.id} value={recipient.id}>
-                          {recipient.name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                  <Label>Select Recipient</Label>
+                  <div className="relative">
+                    <Select
+                      value={messageRecipientId}
+                      onValueChange={setMessageRecipientId}
+                    >
+                      <SelectTrigger className="pr-10">
+                        <SelectValue placeholder="Choose recipient" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {recipients.length === 0 ? (
+                          <div className="py-6 text-center text-sm text-gray-500">
+                            {isLoading ? 'Loading recipients...' : 'No recipients available'}
+                          </div>
+                        ) : (
+                          recipients.map((recipient) => (
+                            <SelectItem key={recipient.id} value={recipient.id}>
+                              {recipient.name}
+                            </SelectItem>
+                          ))
+                        )}
+                      </SelectContent>
+                    </Select>
+
+                    {/* Clear Button */}
+                    {messageRecipientId && (
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setMessageRecipientId('');
+                        }}
+                        className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 focus:outline-none z-10"
+                        aria-label="Clear recipient"
+                      >
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                        </svg>
+                      </button>
+                    )}
+                  </div>
                 </div>
               </div>
+
               <div className="space-y-2">
                 <Label htmlFor="subject">Subject (Optional)</Label>
-                <Input 
-                  id="subject" 
-                  placeholder="Enter message subject" 
+                <Input
+                  id="subject"
+                  placeholder="Enter message subject"
                   value={messageSubject}
                   onChange={(e) => setMessageSubject(e.target.value)}
                 />
               </div>
               <div className="space-y-2">
                 <Label htmlFor="message">Message *</Label>
-                <Textarea 
-                  id="message" 
-                  placeholder="Type your message here..." 
+                <Textarea
+                  id="message"
+                  placeholder="Type your message here..."
                   rows={6}
                   value={messageContent}
                   onChange={(e) => setMessageContent(e.target.value)}
@@ -946,7 +988,7 @@ export function Communication() {
               setShowComposeDialog(false);
               resetMessageForm();
             }}>Cancel</Button>
-            <Button 
+            <Button
               className="bg-gradient-to-r from-[#0A66C2] to-blue-600 hover:from-[#0052A3] hover:to-blue-700"
               onClick={handleSendMessage}
               disabled={isSubmitting}
@@ -969,18 +1011,18 @@ export function Communication() {
             <div className="space-y-4 py-4 pr-4">
               <div className="space-y-2">
                 <Label htmlFor="ann-title">Title *</Label>
-                <Input 
-                  id="ann-title" 
-                  placeholder="Enter announcement title" 
+                <Input
+                  id="ann-title"
+                  placeholder="Enter announcement title"
                   value={announcementTitle}
                   onChange={(e) => setAnnouncementTitle(e.target.value)}
                 />
               </div>
               <div className="space-y-2">
                 <Label htmlFor="ann-content">Content *</Label>
-                <Textarea 
-                  id="ann-content" 
-                  placeholder="Write your announcement..." 
+                <Textarea
+                  id="ann-content"
+                  placeholder="Write your announcement..."
                   rows={6}
                   value={announcementContent}
                   onChange={(e) => setAnnouncementContent(e.target.value)}
@@ -1038,7 +1080,7 @@ export function Communication() {
               setShowAnnouncementDialog(false);
               resetAnnouncementForm();
             }}>Cancel</Button>
-            <Button 
+            <Button
               className="bg-gradient-to-r from-purple-500 to-purple-600 hover:from-purple-600 hover:to-purple-700"
               onClick={handleCreateAnnouncement}
               disabled={isSubmitting}
@@ -1111,7 +1153,7 @@ export function Communication() {
           </ScrollArea>
           <DialogFooter>
             <Button variant="outline" onClick={() => setShowBroadcastDialog(false)}>Cancel</Button>
-            <Button 
+            <Button
               variant="outline"
               onClick={() => {
                 toast.success('Broadcast scheduled successfully!');
@@ -1121,7 +1163,7 @@ export function Communication() {
               <Clock className="w-4 h-4 mr-2" />
               Schedule
             </Button>
-            <Button 
+            <Button
               className="bg-gradient-to-r from-green-500 to-emerald-600 hover:from-green-600 hover:to-emerald-700"
               onClick={() => {
                 toast.success('Broadcast sent successfully!');
@@ -1146,9 +1188,9 @@ export function Communication() {
             <div className="space-y-4 py-4 pr-4">
               <div className="space-y-2">
                 <Label htmlFor="temp-name">Template Name *</Label>
-                <Input 
-                  id="temp-name" 
-                  placeholder="Enter template name" 
+                <Input
+                  id="temp-name"
+                  placeholder="Enter template name"
                   value={templateName}
                   onChange={(e) => setTemplateName(e.target.value)}
                 />
@@ -1167,18 +1209,18 @@ export function Communication() {
               </div>
               <div className="space-y-2">
                 <Label htmlFor="temp-subject">Subject (Optional)</Label>
-                <Input 
-                  id="temp-subject" 
-                  placeholder="Enter template subject" 
+                <Input
+                  id="temp-subject"
+                  placeholder="Enter template subject"
                   value={templateSubject}
                   onChange={(e) => setTemplateSubject(e.target.value)}
                 />
               </div>
               <div className="space-y-2">
                 <Label htmlFor="temp-content">Template Content *</Label>
-                <Textarea 
-                  id="temp-content" 
-                  placeholder="Write your template... Use [Name], [Date], [Amount] as placeholders" 
+                <Textarea
+                  id="temp-content"
+                  placeholder="Write your template... Use [Name], [Date], [Amount] as placeholders"
                   rows={8}
                   value={templateContent}
                   onChange={(e) => setTemplateContent(e.target.value)}
@@ -1202,7 +1244,7 @@ export function Communication() {
               setShowTemplateDialog(false);
               resetTemplateForm();
             }}>Cancel</Button>
-            <Button 
+            <Button
               className="bg-gradient-to-r from-orange-500 to-amber-600 hover:from-orange-600 hover:to-amber-700"
               onClick={handleCreateTemplate}
               disabled={isSubmitting}

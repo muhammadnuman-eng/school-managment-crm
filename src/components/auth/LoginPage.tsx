@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { Shield, Mail, Lock, Eye, EyeOff } from 'lucide-react';
 import { Button } from '../ui/button';
@@ -12,6 +12,7 @@ import { getDeviceInfo } from '../../utils/device';
 import { getUserFriendlyError } from '../../utils/errors';
 import { ApiException } from '../../utils/errors';
 import { tokenStorage, userStorage } from '../../utils/storage';
+import { getLogoutReason } from '../../utils/auth-logout';
 
 export function LoginPage() {
   const navigate = useNavigate();
@@ -20,6 +21,14 @@ export function LoginPage() {
   const [showPassword, setShowPassword] = useState(false);
   const [rememberMe, setRememberMe] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+
+  // Check for logout reason on mount
+  useEffect(() => {
+    const reason = getLogoutReason();
+    if (reason) {
+      toast.warning(reason, { duration: 5000 });
+    }
+  }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();

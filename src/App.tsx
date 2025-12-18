@@ -364,7 +364,7 @@ export default function App() {
   // Show loading state while checking authentication
   if (isCheckingAuth) {
     return (
-      <div className="flex h-screen items-center justify-center bg-[#E8F0FE] dark:bg-gray-950">
+      <div className="flex h-screen items-center justify-center bg-white dark:bg-gray-950">
         <div className="text-center">
           <div className="mb-4 inline-block h-8 w-8 animate-spin rounded-full border-4 border-solid border-[#2563EB] border-r-transparent"></div>
           <p className="text-gray-600 dark:text-gray-400">Loading...</p>
@@ -384,7 +384,7 @@ export default function App() {
   }
 
   return (
-    <div className="flex h-screen bg-[#E8F0FE] dark:bg-gray-950">
+    <div className="flex h-screen bg-white dark:bg-gray-950">
       <Sidebar 
         userType={userType} 
         currentPage={currentPage} 

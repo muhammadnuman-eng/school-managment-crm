@@ -7,6 +7,7 @@ import { getApiUrl, API_CONFIG } from '../config/api.config';
 import { ApiResponse, RequestConfig } from '../types/api.types';
 import { ApiException, parseApiError, getUserFriendlyError, isNetworkError } from '../utils/errors';
 import { tokenStorage, schoolStorage } from '../utils/storage';
+import { forceLogout } from '../utils/auth-logout';
 
 /**
  * Request options
@@ -358,6 +359,34 @@ class ApiClient {
 
     // Handle non-2xx responses
     if (!response.ok) {
+      // Handle 401 Unauthorized - Token expired or invalid
+      if (response.status === 401) {
+        // Check if this is an auth endpoint (login, register, etc.) - don't logout on those
+        const url = response.url || '';
+        const isAuthEndpoint = url.includes('/auth/login') || 
+                              url.includes('/auth/register') || 
+                              url.includes('/auth/forgot-password') ||
+                              url.includes('/auth/reset-password') ||
+                              url.includes('/auth/2fa/verify') ||
+                              url.includes('/auth/resend-otp') ||
+                              url.includes('/auth/verify-email');
+        
+        // Only logout if it's NOT an auth endpoint (means token expired on protected route)
+        if (!isAuthEndpoint) {
+          // Token expired or invalid - force logout
+          console.warn('Token expired or invalid. Logging out user...');
+          forceLogout('Your session has expired. Please login again.');
+          
+          // Throw error to prevent further processing
+          throw new ApiException(
+            'Your session has expired. Please login again.',
+            401,
+            'TOKEN_EXPIRED',
+            { autoLogout: true }
+          );
+        }
+      }
+
       // Log error details for debugging
       if (response.status === 400) {
         console.error('Bad Request Error:', {
@@ -386,6 +415,20 @@ class ApiClient {
         errorMessage = data.message;
       } else if (data?.error && typeof data.error === 'string') {
         errorMessage = data.error;
+      }
+
+      // Special handling for 409 Conflict - show detailed message
+      if (response.status === 409) {
+        // Log the conflict details for debugging
+        if (import.meta.env.DEV) {
+          console.error('⚠️ 409 Conflict Error:', {
+            status: response.status,
+            message: errorMessage,
+            data: data,
+            url: response.url,
+            note: 'This usually means a duplicate email or user already exists',
+          });
+        }
       }
 
       // Special handling for 403 Forbidden (role/permission errors)
@@ -452,6 +495,23 @@ class ApiClient {
       return await this.handleResponse<T>(response);
     } catch (error: any) {
       if (error instanceof ApiException) {
+        // Handle 401 Unauthorized errors (token expired)
+        if (error.statusCode === 401 && error.details?.autoLogout !== true) {
+          // Check if this is an auth endpoint - don't logout on those
+          const isAuthEndpoint = endpoint.includes('/auth/login') || 
+                                endpoint.includes('/auth/register') || 
+                                endpoint.includes('/auth/forgot-password') ||
+                                endpoint.includes('/auth/reset-password') ||
+                                endpoint.includes('/auth/2fa/verify') ||
+                                endpoint.includes('/auth/resend-otp') ||
+                                endpoint.includes('/auth/verify-email');
+          
+          if (!isAuthEndpoint) {
+            console.warn('Token expired or invalid. Logging out user...');
+            forceLogout('Your session has expired. Please login again.');
+          }
+        }
+        
         // Log CORS errors with detailed information
         if (error.code === 'CORS_ERROR') {
           console.error('🚨 CORS Error Detected:', {

@@ -35,7 +35,7 @@ const adminMenuItems = [
   { id: 'students', label: 'Students', icon: Users },
   { id: 'teachers', label: 'Teachers', icon: GraduationCap },
   { id: 'classes', label: 'Classes & Sections', icon: BookOpen },
-  { id: 'attendance', label: 'Attendance', icon: CalendarCheck },
+  // { id: 'attendance', label: 'Attendance', icon: CalendarCheck },
   { id: 'fees', label: 'Fee Management', icon: DollarSign },
   { id: 'communication', label: 'Communication', icon: MessageSquare },
   { id: 'examinations', label: 'Examinations', icon: ClipboardList },

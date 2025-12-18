@@ -90,11 +90,11 @@ import { ApiException, getUserFriendlyError } from '../../utils/errors';
 // ];
 
 const expenseRecords = [
-  { 
-    id: 1, 
-    category: 'Salaries', 
-    description: 'Teacher salaries - January 2024', 
-    amount: 1500000, 
+  {
+    id: 1,
+    category: 'Salaries',
+    description: 'Teacher salaries - January 2024',
+    amount: 1500000,
     date: '2024-01-01',
     time: '09:00 AM',
     status: 'Paid',
@@ -103,11 +103,11 @@ const expenseRecords = [
     createdDate: '2023-12-28',
     createdTime: '03:30 PM'
   },
-  { 
-    id: 2, 
-    category: 'Infrastructure', 
-    description: 'Classroom renovation - Science Lab', 
-    amount: 450000, 
+  {
+    id: 2,
+    category: 'Infrastructure',
+    description: 'Classroom renovation - Science Lab',
+    amount: 450000,
     date: '2024-01-05',
     time: '02:15 PM',
     status: 'Paid',
@@ -116,11 +116,11 @@ const expenseRecords = [
     createdDate: '2024-01-03',
     createdTime: '11:45 AM'
   },
-  { 
-    id: 3, 
-    category: 'Utilities', 
-    description: 'Electricity & Water bills - December', 
-    amount: 125000, 
+  {
+    id: 3,
+    category: 'Utilities',
+    description: 'Electricity & Water bills - December',
+    amount: 125000,
     date: '2024-01-10',
     time: '10:30 AM',
     status: 'Pending',
@@ -129,11 +129,11 @@ const expenseRecords = [
     createdDate: '2024-01-08',
     createdTime: '04:20 PM'
   },
-  { 
-    id: 4, 
-    category: 'Supplies', 
-    description: 'Books and stationery for library', 
-    amount: 285000, 
+  {
+    id: 4,
+    category: 'Supplies',
+    description: 'Books and stationery for library',
+    amount: 285000,
     date: '2024-01-12',
     time: '03:45 PM',
     status: 'Paid',
@@ -142,11 +142,11 @@ const expenseRecords = [
     createdDate: '2024-01-10',
     createdTime: '01:10 PM'
   },
-  { 
-    id: 5, 
-    category: 'Maintenance', 
-    description: 'HVAC system repair and servicing', 
-    amount: 95000, 
+  {
+    id: 5,
+    category: 'Maintenance',
+    description: 'HVAC system repair and servicing',
+    amount: 95000,
     date: '2024-01-15',
     time: '11:00 AM',
     status: 'Approved',
@@ -155,11 +155,11 @@ const expenseRecords = [
     createdDate: '2024-01-13',
     createdTime: '02:50 PM'
   },
-  { 
-    id: 6, 
-    category: 'Transportation', 
-    description: 'Bus fuel and maintenance - January', 
-    amount: 175000, 
+  {
+    id: 6,
+    category: 'Transportation',
+    description: 'Bus fuel and maintenance - January',
+    amount: 175000,
     date: '2024-01-08',
     time: '09:30 AM',
     status: 'Paid',
@@ -180,25 +180,40 @@ const expenseCategories = [
   'OTHER'
 ];
 
+// Manual Fee Types - Hardcoded values
+const manualFeeTypes: FeeType[] = [
+  { id: 'tuition-fee', name: 'Tuition Fee', amount: 0, description: 'Monthly tuition fee' },
+  { id: 'academic-fee', name: 'Academic Fee', amount: 0, description: 'Academic year fee' },
+  { id: 'transport-fee', name: 'Transport Fee', amount: 0, description: 'School transport fee' },
+  { id: 'hostel-fee', name: 'Hostel Fee', amount: 0, description: 'Hostel accommodation fee' },
+  { id: 'library-fee', name: 'Library Fee', amount: 0, description: 'Library membership fee' },
+  { id: 'lab-fee', name: 'Lab Fee', amount: 0, description: 'Laboratory fee' },
+  { id: 'sports-fee', name: 'Sports Fee', amount: 0, description: 'Sports activities fee' },
+  { id: 'examination-fee', name: 'Examination Fee', amount: 0, description: 'Examination fee' },
+  { id: 'admission-fee', name: 'Admission Fee', amount: 0, description: 'One-time admission fee' },
+  { id: 'registration-fee', name: 'Registration Fee', amount: 0, description: 'Registration fee' },
+];
+
 export function FeeManagement() {
   const [showInvoiceDialog, setShowInvoiceDialog] = useState(false);
   const [showExpenseDialog, setShowExpenseDialog] = useState(false);
   const [editingExpense, setEditingExpense] = useState<Expense | null>(null);
   const [activeTab, setActiveTab] = useState('invoices');
-  
+
   // API state
   const [isLoading, setIsLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [feeTypes, setFeeTypes] = useState<FeeType[]>([]);
+  // Use manual fee types instead of API
+  const [feeTypes, setFeeTypes] = useState<FeeType[]>(manualFeeTypes);
   const [studentFees, setStudentFees] = useState<StudentFee[]>([]);
   const [expenses, setExpenses] = useState<Expense[]>([]);
   const [students, setStudents] = useState<Student[]>([]);
-  
+
   // Filter state
   const [searchQuery, setSearchQuery] = useState('');
   const [filterClass, setFilterClass] = useState<string | undefined>(undefined);
   const [filterStatus, setFilterStatus] = useState<'Paid' | 'Partial' | 'Pending' | undefined>(undefined);
-  
+
   // Invoice form state
   const [selectedStudentId, setSelectedStudentId] = useState('');
   const [selectedFeeTypeId, setSelectedFeeTypeId] = useState('');
@@ -206,7 +221,7 @@ export function FeeManagement() {
   const [issueDate, setIssueDate] = useState('');
   const [dueDate, setDueDate] = useState('');
   const [invoiceNotes, setInvoiceNotes] = useState('');
-  
+
   // Expense form state
   const [expenseCategory, setExpenseCategory] = useState('');
   const [expenseDescription, setExpenseDescription] = useState('');
@@ -252,12 +267,53 @@ export function FeeManagement() {
     }
   }, [activeTab]);
 
+  // Ensure fee types and students are loaded when dialog opens
+  useEffect(() => {
+    if (showInvoiceDialog) {
+      // Use manual fee types - no API call needed
+      setFeeTypes(manualFeeTypes);
+
+      // Fetch students if not already loaded
+      if (students.length === 0) {
+        const fetchStudentsOnly = async () => {
+          try {
+            const studentsResponse = await adminService.getStudents();
+            setStudents(studentsResponse.students || []);
+
+            if (import.meta.env.DEV) {
+              console.log('✅ Students loaded for invoice dialog:', {
+                students: studentsResponse.students || [],
+                count: studentsResponse.students?.length || 0,
+              });
+            }
+          } catch (error: any) {
+            console.error('❌ Error fetching students:', error);
+            let errorMessage = 'Failed to load students. Please try again.';
+            if (error instanceof ApiException) {
+              errorMessage = getUserFriendlyError(error);
+            } else if (error?.message) {
+              errorMessage = error.message;
+            }
+            toast.error(errorMessage);
+          }
+        };
+        fetchStudentsOnly();
+      }
+
+      if (import.meta.env.DEV) {
+        console.log('✅ Fee Types available for invoice dialog:', {
+          feeTypes: manualFeeTypes,
+          count: manualFeeTypes.length,
+        });
+      }
+    }
+  }, [showInvoiceDialog, students.length]);
+
   const fetchFeeData = async () => {
     setIsLoading(true);
     try {
-      // Fetch fee types
-      const feeTypesResponse = await adminService.getFeeTypes();
-      setFeeTypes(feeTypesResponse.feeTypes || []);
+      // Use manual fee types (no API call needed)
+      setFeeTypes(manualFeeTypes);
 
       // Fetch student fees
       const feesResponse = await adminService.getStudentFees();
@@ -275,7 +331,8 @@ export function FeeManagement() {
         errorMessage = error.message;
       }
       toast.error(errorMessage);
-      setFeeTypes([]);
+      // Keep manual fee types even on error
+      setFeeTypes(manualFeeTypes);
       setStudentFees([]);
       setStudents([]);
     } finally {
@@ -312,7 +369,7 @@ export function FeeManagement() {
   const totalDue = useMemo(() => {
     return studentFees.reduce((sum, record) => sum + (record.dueAmount || 0), 0);
   }, [studentFees]);
-  
+
   const totalExpenses = useMemo(() => {
     return expenses.reduce((sum, expense) => sum + (expense.amount || 0), 0);
   }, [expenses]);
@@ -345,7 +402,7 @@ export function FeeManagement() {
     }
 
     // Status filter
-    if (filterStatus && filterStatus !== 'all') {
+    if (filterStatus) {
       filtered = filtered.filter(fee => fee.status === filterStatus);
     }
 
@@ -366,19 +423,21 @@ export function FeeManagement() {
 
     setIsSubmitting(true);
     try {
-      const payload: CreateInvoiceRequest = {
-        studentId: selectedStudentId,
-        feeTypeId: selectedFeeTypeId,
-        amount: parseFloat(invoiceAmount),
-        issueDate: issueDate || undefined,
+      const payload = {
+        studentId: selectedStudentId,                    // UUID string
+        feeTypeId: String(selectedFeeTypeId),             // MUST be string like "ADMISSION_FEE"
+        totalAmount: parseFloat(invoiceAmount) || 0,       // number, integer ya decimal
         dueDate: dueDate || undefined,
-        notes: invoiceNotes || undefined,
+        // academicYearId optional hai → nahi bhej rahe, backend pe auto handle hoga
       };
 
+      console.log('Sending payload:', payload); // ← YE ZAROOR ADD KARO DEBUG KE LIYE
+
       await adminService.createInvoice(payload);
+
       toast.success('Invoice created successfully!');
       setShowInvoiceDialog(false);
-      
+
       // Reset form
       setSelectedStudentId('');
       setSelectedFeeTypeId('');
@@ -386,15 +445,15 @@ export function FeeManagement() {
       setIssueDate('');
       setDueDate('');
       setInvoiceNotes('');
-      
-      // Refresh data
+
       await fetchFeeData();
     } catch (error: any) {
+      console.error('Full error:', error); // ← ye bhi add karo
       let errorMessage = 'Failed to create invoice. Please try again.';
       if (error instanceof ApiException) {
         errorMessage = getUserFriendlyError(error);
-      } else if (error?.message) {
-        errorMessage = error.message;
+      } else if (error?.response?.data) {
+        errorMessage = error.response.data.message.join(', ');
       }
       toast.error(errorMessage);
     } finally {
@@ -430,10 +489,10 @@ export function FeeManagement() {
         await adminService.createExpense(payload);
         toast.success('Expense added successfully!');
       }
-      
+
       setShowExpenseDialog(false);
       resetExpenseForm();
-      
+
       // Refresh expenses
       await fetchExpenses();
     } catch (error: any) {
@@ -470,10 +529,10 @@ export function FeeManagement() {
 
   const formatDateTime = (date: string | null, time: string | null) => {
     if (!date) return 'N/A';
-    const dateStr = new Date(date).toLocaleDateString('en-PK', { 
+    const dateStr = new Date(date).toLocaleDateString('en-PK', {
       day: '2-digit',
-      month: 'short', 
-      year: 'numeric' 
+      month: 'short',
+      year: 'numeric'
     });
     return time ? `${dateStr} at ${time}` : dateStr;
   };
@@ -574,8 +633,8 @@ export function FeeManagement() {
             <div className="flex items-center gap-4 mb-6">
               <div className="relative flex-1">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-                <Input 
-                  placeholder="Search by student name or roll number..." 
+                <Input
+                  placeholder="Search by student name or roll number..."
                   className="pl-10"
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
@@ -603,8 +662,8 @@ export function FeeManagement() {
                   <SelectItem value="Pending">Pending</SelectItem>
                 </SelectContent>
               </Select>
-              <Button 
-                variant="outline" 
+              <Button
+                variant="outline"
                 className="gap-2"
                 onClick={() => {
                   setSearchQuery('');
@@ -678,12 +737,12 @@ export function FeeManagement() {
                           </div>
                         </TableCell>
                         <TableCell>
-                          <Badge 
-                            variant="outline" 
+                          <Badge
+                            variant="outline"
                             className={
                               record.status === 'Paid' ? 'bg-green-100 text-green-700 border-green-200' :
-                              record.status === 'Partial' ? 'bg-yellow-100 text-yellow-700 border-yellow-200' :
-                              'bg-red-100 text-red-700 border-red-200'
+                                record.status === 'Partial' ? 'bg-yellow-100 text-yellow-700 border-yellow-200' :
+                                  'bg-red-100 text-red-700 border-red-200'
                             }
                           >
                             {record.status}
@@ -807,12 +866,12 @@ export function FeeManagement() {
                           </span>
                         </TableCell>
                         <TableCell>
-                          <Badge 
-                            variant="outline" 
+                          <Badge
+                            variant="outline"
                             className={
-                              expense.status === 'Paid' ? 'bg-green-100 text-green-700 border-green-200' : 
-                              expense.status === 'Approved' ? 'bg-blue-100 text-blue-700 border-blue-200' :
-                              'bg-yellow-100 text-yellow-700 border-yellow-200'
+                              expense.status === 'Paid' ? 'bg-green-100 text-green-700 border-green-200' :
+                                expense.status === 'Approved' ? 'bg-blue-100 text-blue-700 border-blue-200' :
+                                  'bg-yellow-100 text-yellow-700 border-yellow-200'
                             }
                           >
                             {expense.status}
@@ -830,7 +889,7 @@ export function FeeManagement() {
                                 <Edit className="w-4 h-4 mr-2" />
                                 Edit
                               </DropdownMenuItem>
-                              <DropdownMenuItem 
+                              <DropdownMenuItem
                                 className="text-red-600"
                                 onClick={() => handleDeleteExpense(expense.id)}
                               >
@@ -938,15 +997,15 @@ export function FeeManagement() {
               {(() => {
                 // Get unique categories from expenses
                 const categories = Array.from(new Set(expenses.map(e => e.category).filter(Boolean)));
-                
+
                 return categories.map(category => {
                   const categoryTotal = expenses
                     .filter(e => e.category === category)
                     .reduce((sum, e) => sum + (e.amount || 0), 0);
                   const percentage = totalExpenses > 0 ? (categoryTotal / totalExpenses) * 100 : 0;
-                  
+
                   if (categoryTotal === 0) return null;
-                  
+
                   return (
                     <div key={category} className="space-y-2">
                       <div className="flex items-center justify-between text-sm">
@@ -954,7 +1013,7 @@ export function FeeManagement() {
                         <span className="text-gray-900 dark:text-white">{formatCurrency(categoryTotal)}</span>
                       </div>
                       <div className="h-2 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
-                        <div 
+                        <div
                           className="h-full bg-[#0A66C2]"
                           style={{ width: `${percentage}%` }}
                         ></div>
@@ -970,12 +1029,12 @@ export function FeeManagement() {
 
       {/* Create Invoice Dialog */}
       <Dialog open={showInvoiceDialog} onOpenChange={setShowInvoiceDialog}>
-        <DialogContent className="max-w-2xl">
+        <DialogContent className="max-w-2xl overflow-visible">
           <DialogHeader>
             <DialogTitle>Create Invoice</DialogTitle>
             <DialogDescription>Generate a new fee invoice for a student</DialogDescription>
           </DialogHeader>
-          <ScrollArea className="max-h-[60vh]">
+          <ScrollArea className="max-h-[60vh] overflow-visible">
             <div className="space-y-4 py-4 pr-4">
               <div className="space-y-2">
                 <Label htmlFor="student">Select Student *</Label>
@@ -983,32 +1042,49 @@ export function FeeManagement() {
                   <SelectTrigger>
                     <SelectValue placeholder="Choose student" />
                   </SelectTrigger>
-                  <SelectContent>
-                    {students.map(student => (
-                      <SelectItem key={student.id} value={student.id}>
-                        {student.name} {student.rollNo ? `- ${student.rollNo}` : ''}
-                      </SelectItem>
-                    ))}
+                  <SelectContent
+                    className="max-h-[300px]"
+                    position="popper"
+                    sideOffset={5}
+                  >
+                    {students.length === 0 ? (
+                      <div className="px-2 py-1.5 text-sm text-gray-500 dark:text-gray-400">
+                        {isLoading ? 'Loading students...' : 'No students available'}
+                      </div>
+                    ) : (
+                      students.map(student => (
+                        <SelectItem key={student.id} value={student.id}>
+                          {student.name} {student.rollNo ? `- ${student.rollNo}` : ''}
+                        </SelectItem>
+                      ))
+                    )}
                   </SelectContent>
                 </Select>
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <Label htmlFor="feeType">Fee Type *</Label>
-                  <Select value={selectedFeeTypeId} onValueChange={(val) => {
-                    setSelectedFeeTypeId(val);
-                    const feeType = feeTypes.find(ft => ft.id === val);
-                    if (feeType) {
-                      setInvoiceAmount(feeType.amount.toString());
-                    }
-                  }}>
-                    <SelectTrigger>
+                  <Select
+                    value={selectedFeeTypeId}
+                    onValueChange={(val) => {
+                      setSelectedFeeTypeId(val);
+                      const feeType = feeTypes.find(ft => ft.id === val);
+                      if (feeType) {
+                        setInvoiceAmount(feeType.amount.toString());
+                      }
+                    }}
+                  >
+                    <SelectTrigger id="feeType" className="w-full">
                       <SelectValue placeholder="Select fee type" />
                     </SelectTrigger>
-                    <SelectContent>
+                    <SelectContent
+                      className="max-h-[300px]"
+                      position="popper"
+                      sideOffset={5}
+                    >
                       {feeTypes.map(feeType => (
                         <SelectItem key={feeType.id} value={feeType.id}>
-                          {feeType.name} - {formatCurrency(feeType.amount)}
+                          {feeType.name}
                         </SelectItem>
                       ))}
                     </SelectContent>
@@ -1016,10 +1092,10 @@ export function FeeManagement() {
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="amount">Amount (PKR) *</Label>
-                  <Input 
-                    id="amount" 
-                    type="number" 
-                    placeholder="0" 
+                  <Input
+                    id="amount"
+                    type="number"
+                    placeholder="0"
                     value={invoiceAmount}
                     onChange={(e) => setInvoiceAmount(e.target.value)}
                   />
@@ -1028,18 +1104,18 @@ export function FeeManagement() {
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <Label htmlFor="issueDate">Issue Date</Label>
-                  <Input 
-                    id="issueDate" 
-                    type="date" 
+                  <Input
+                    id="issueDate"
+                    type="date"
                     value={issueDate}
                     onChange={(e) => setIssueDate(e.target.value)}
                   />
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="dueDate">Due Date</Label>
-                  <Input 
-                    id="dueDate" 
-                    type="date" 
+                  <Input
+                    id="dueDate"
+                    type="date"
                     value={dueDate}
                     onChange={(e) => setDueDate(e.target.value)}
                   />
@@ -1047,9 +1123,9 @@ export function FeeManagement() {
               </div>
               <div className="space-y-2">
                 <Label htmlFor="notes">Notes (Optional)</Label>
-                <Textarea 
-                  id="notes" 
-                  placeholder="Add any additional notes..." 
+                <Textarea
+                  id="notes"
+                  placeholder="Add any additional notes..."
                   rows={3}
                   value={invoiceNotes}
                   onChange={(e) => setInvoiceNotes(e.target.value)}
@@ -1067,7 +1143,7 @@ export function FeeManagement() {
               setDueDate('');
               setInvoiceNotes('');
             }}>Cancel</Button>
-            <Button 
+            <Button
               className="bg-[#0A66C2] hover:bg-[#0052A3]"
               onClick={handleCreateInvoice}
               disabled={isSubmitting}
@@ -1108,10 +1184,10 @@ export function FeeManagement() {
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="expenseAmount">Amount (PKR) *</Label>
-                  <Input 
-                    id="expenseAmount" 
-                    type="number" 
-                    placeholder="0" 
+                  <Input
+                    id="expenseAmount"
+                    type="number"
+                    placeholder="0"
                     value={expenseAmount}
                     onChange={(e) => setExpenseAmount(e.target.value)}
                   />
@@ -1119,9 +1195,9 @@ export function FeeManagement() {
               </div>
               <div className="space-y-2">
                 <Label htmlFor="description">Description *</Label>
-                <Textarea 
-                  id="description" 
-                  placeholder="Enter expense details..." 
+                <Textarea
+                  id="description"
+                  placeholder="Enter expense details..."
                   rows={3}
                   value={expenseDescription}
                   onChange={(e) => setExpenseDescription(e.target.value)}
@@ -1130,18 +1206,18 @@ export function FeeManagement() {
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <Label htmlFor="expenseDate">Date *</Label>
-                  <Input 
-                    id="expenseDate" 
-                    type="date" 
+                  <Input
+                    id="expenseDate"
+                    type="date"
                     value={expenseDate}
                     onChange={(e) => setExpenseDate(e.target.value)}
                   />
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="expenseTime">Time</Label>
-                  <Input 
-                    id="expenseTime" 
-                    type="time" 
+                  <Input
+                    id="expenseTime"
+                    type="time"
                     value={expenseTime}
                     onChange={(e) => setExpenseTime(e.target.value)}
                   />
@@ -1178,9 +1254,9 @@ export function FeeManagement() {
               </div>
               <div className="space-y-2">
                 <Label htmlFor="approvedBy">Approved By</Label>
-                <Input 
-                  id="approvedBy" 
-                  placeholder="Enter approver name" 
+                <Input
+                  id="approvedBy"
+                  placeholder="Enter approver name"
                   value={expenseApprovedBy}
                   onChange={(e) => setExpenseApprovedBy(e.target.value)}
                 />
@@ -1192,7 +1268,7 @@ export function FeeManagement() {
               setShowExpenseDialog(false);
               resetExpenseForm();
             }}>Cancel</Button>
-            <Button 
+            <Button
               className="bg-[#0A66C2] hover:bg-[#0052A3]"
               onClick={handleAddExpense}
               disabled={isSubmitting}

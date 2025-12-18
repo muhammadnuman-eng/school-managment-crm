@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { Building2, Mail, Lock, Eye, EyeOff, ArrowLeft } from 'lucide-react';
 import { Button } from '../ui/button';
@@ -10,6 +10,7 @@ import { authService } from '../../services';
 import { getUserFriendlyError } from '../../utils/errors';
 import { ApiException } from '../../utils/errors';
 import { tokenStorage, userStorage, schoolStorage } from '../../utils/storage';
+import { getLogoutReason } from '../../utils/auth-logout';
 
 export function SchoolLoginPage() {
   const navigate = useNavigate();
@@ -18,6 +19,14 @@ export function SchoolLoginPage() {
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [showNoSchoolError, setShowNoSchoolError] = useState(false);
+
+  // Check for logout reason on mount
+  useEffect(() => {
+    const reason = getLogoutReason();
+    if (reason) {
+      toast.warning(reason, { duration: 5000 });
+    }
+  }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();

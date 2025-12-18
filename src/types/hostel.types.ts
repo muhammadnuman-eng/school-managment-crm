@@ -251,3 +251,4 @@ export interface HostelOverview {
   maintenanceRooms: number;
 }
 
+

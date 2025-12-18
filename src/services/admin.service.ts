@@ -9,7 +9,7 @@ import { DashboardStatsResponse } from '../types/dashboard.types';
 import { AddStudentRequest, UpdateStudentRequest, GetStudentsRequest, StudentsResponse, Student, ClassInfo, SectionInfo } from '../types/student.types';
 import { AddClassRequest, UpdateClassRequest, ClassResponse, ClassesListResponse } from '../types/class.types';
 import { Teacher, TeachersResponse, AddTeacherRequest, UpdateTeacherRequest } from '../types/teacher.types';
-import { FeeTypesResponse, StudentFeesResponse, GetStudentFeesRequest, CreateInvoiceRequest, ExpensesResponse, CreateExpenseRequest } from '../types/fee.types';
+import { FeeType, FeeTypesResponse, StudentFee, StudentFeesResponse, GetStudentFeesRequest, CreateInvoiceRequest, Expense, ExpensesResponse, CreateExpenseRequest } from '../types/fee.types';
 import { AcademicYear, CreateAcademicYearRequest, AcademicYearsResponse } from '../types/academic-year.types';
 import { ApiResponse } from '../types/api.types';
 import { schoolStorage } from '../utils/storage';
@@ -152,13 +152,13 @@ class AdminService {
     // Handle different response structures
     // Backend might return data directly or nested in data.data
     const statsData = response.data as any;
-    
+
     // Check for nested data structure
     let finalData = statsData;
     if (statsData.data && typeof statsData.data === 'object' && !Array.isArray(statsData.data)) {
       finalData = statsData.data;
     }
-    
+
     // Log extracted data structure
     if (import.meta.env.DEV) {
       console.log('Dashboard Stats Extracted Data:', {
@@ -172,7 +172,7 @@ class AdminService {
         classDistributionLength: Array.isArray(finalData?.classDistribution) ? finalData.classDistribution.length : 0,
       });
     }
-    
+
     // Ensure graph data arrays are properly formatted
     const result: DashboardStatsResponse = {
       students: finalData.students || { total: 0 },
@@ -183,19 +183,19 @@ class AdminService {
       recentActivities: Array.isArray(finalData.recentActivities) ? finalData.recentActivities : [],
       // Graph data - check multiple possible property names
       revenueData: Array.isArray(finalData.revenueData) ? finalData.revenueData :
-                  Array.isArray(finalData.revenue) ? finalData.revenue :
-                  Array.isArray(finalData.financialData) ? finalData.financialData :
-                  undefined,
+        Array.isArray(finalData.revenue) ? finalData.revenue :
+          Array.isArray(finalData.financialData) ? finalData.financialData :
+            undefined,
       attendanceTrend: Array.isArray(finalData.attendanceTrend) ? finalData.attendanceTrend :
-                       Array.isArray(finalData.attendance) ? finalData.attendance :
-                       Array.isArray(finalData.attendanceData) ? finalData.attendanceData :
-                       undefined,
+        Array.isArray(finalData.attendance) ? finalData.attendance :
+          Array.isArray(finalData.attendanceData) ? finalData.attendanceData :
+            undefined,
       classDistribution: Array.isArray(finalData.classDistribution) ? finalData.classDistribution :
-                         Array.isArray(finalData.classes) ? finalData.classes :
-                         Array.isArray(finalData.distribution) ? finalData.distribution :
-                         undefined,
+        Array.isArray(finalData.classes) ? finalData.classes :
+          Array.isArray(finalData.distribution) ? finalData.distribution :
+            undefined,
     };
-    
+
     if (import.meta.env.DEV) {
       console.log('Dashboard Stats Final Result:', {
         result,
@@ -204,7 +204,7 @@ class AdminService {
         classDistributionCount: result.classDistribution?.length || 0,
       });
     }
-    
+
     return result;
   }
 
@@ -220,14 +220,14 @@ class AdminService {
     if (params?.search) queryParams.append('search', params.search);
 
     const endpoint = `${API_ENDPOINTS.admin.students}${queryParams.toString() ? `?${queryParams.toString()}` : ''}`;
-    
-    const response = await apiClient.get<StudentsResponse>(endpoint);
+
+    const response = await apiClient.get<any>(endpoint);
 
     if (import.meta.env.DEV) {
       console.log('Get Students API Response:', {
         params,
         response,
-        students: response.data,
+        responseData: response.data,
       });
     }
 
@@ -237,9 +237,23 @@ class AdminService {
 
     // Handle different response structures
     const data = response.data as any;
+
+    // Case 1: Response has { data: [...], meta: {...} } structure (new API format)
+    if (data.data && Array.isArray(data.data)) {
+      return {
+        students: data.data as Student[],
+        total: data.meta?.total,
+        page: data.meta?.page,
+        limit: data.meta?.limit,
+      };
+    }
+
+    // Case 2: Response has { students: [...] } structure (old format)
     if (data.students && Array.isArray(data.students)) {
       return data as StudentsResponse;
     }
+
+    // Case 3: Response is directly an array
     if (Array.isArray(data)) {
       return { students: data as Student[] };
     }
@@ -331,14 +345,22 @@ class AdminService {
 
   /**
    * Get Class by Name/Grade
+   * Supports both "Class X" and "Grade X" formats
    */
   async getClassByName(className: string): Promise<ClassInfo> {
-    // Extract grade number from className (e.g., "Grade 10" -> 10)
-    const gradeMatch = className.match(/Grade\s+(\d+)/i);
-    const grade = gradeMatch ? parseInt(gradeMatch[1]) : null;
-    
+    // Extract grade/class number from className
+    // Support both "Class X" and "Grade X" formats
+    const classMatch = className.match(/(?:Class|Grade)\s+(\d+)/i);
+    const grade = classMatch ? parseInt(classMatch[1], 10) : null;
+
     if (!grade) {
-      throw new Error(`Invalid class name format: ${className}`);
+      // If format doesn't match, try to search by name directly
+      if (import.meta.env.DEV) {
+        console.warn(`Class name format not recognized: ${className}, trying name-based search...`);
+      }
+      // Try searching by name instead of grade
+      // This allows backend to handle class lookup by name
+      throw new Error(`Class name format not recognized: ${className}. Please use "Class X" or "Grade X" format.`);
     }
 
     const response = await apiClient.get<ClassInfo | ClassInfo[]>(
@@ -360,7 +382,7 @@ class AdminService {
 
     // Handle different response structures
     let classData: any = null;
-    
+
     // Check if response.data is an array
     if (Array.isArray(response.data)) {
       classData = response.data.length > 0 ? response.data[0] : null;
@@ -374,7 +396,7 @@ class AdminService {
         classData = response.data.data;
       }
     }
-    
+
     if (import.meta.env.DEV) {
       console.log('Class data extracted:', {
         classData,
@@ -383,22 +405,22 @@ class AdminService {
         keys: classData ? Object.keys(classData) : [],
       });
     }
-    
+
     if (!classData) {
       throw new Error(`Class not found for ${className}`);
     }
-    
+
     // Ensure UUID exists - check multiple possible properties
     // Backend might use: uuid, id, classId, _id, etc.
     const classUUID = classData.uuid || classData.id || classData.classId || classData._id;
-    
+
     if (import.meta.env.DEV && !classUUID) {
       console.warn('Class UUID not found, available properties:', {
         classData,
         allKeys: Object.keys(classData),
       });
     }
-    
+
     if (!classUUID) {
       // If UUID is not found, try to use the first available ID field
       const fallbackId = classData.id || classData.classId || classData._id;
@@ -454,17 +476,84 @@ class AdminService {
   /**
    * Add Student
    */
-  async addStudent(request: AddStudentRequest, classUUID: string): Promise<ApiResponse<Student>> {
-    // Add class UUID to request headers
+  async addStudent(request: AddStudentRequest, classUUID?: string): Promise<ApiResponse<Student>> {
+    // Prepare headers - only include X-Class-UUID if provided
+    const headers: Record<string, string> = {};
+    if (classUUID && classUUID.trim() !== '') {
+      headers['X-Class-UUID'] = classUUID;
+    }
+
+    // Trim all string fields to ensure no whitespace issues
+    const trimmedRequest: AddStudentRequest = {
+      firstName: request.firstName?.trim() || '',
+      lastName: request.lastName?.trim() || '',
+      dateOfBirth: request.dateOfBirth?.trim() || '',
+      address: request.address?.trim() || '',
+      phone: request.phone?.trim() || '',
+      currentSectionId: request.currentSectionId?.trim() || '',
+      parentPhone: request.parentPhone?.trim() || undefined,
+      className: request.className?.trim() || undefined,
+      classId: request.classId?.trim() || undefined,
+    };
+
+    // Validate all required fields are present and not empty
+    const missingFields: string[] = [];
+    if (!trimmedRequest.firstName) missingFields.push('firstName');
+    if (!trimmedRequest.lastName) missingFields.push('lastName');
+    if (!trimmedRequest.dateOfBirth) missingFields.push('dateOfBirth');
+    if (!trimmedRequest.address) missingFields.push('address');
+    if (!trimmedRequest.phone) missingFields.push('phone');
+    if (!trimmedRequest.currentSectionId) missingFields.push('currentSectionId');
+
+    if (missingFields.length > 0) {
+      throw new Error(`Missing required fields: ${missingFields.join(', ')}`);
+    }
+
+    // Ensure className is always in the request body (backend requirement when section is provided)
+    const requestBody: AddStudentRequest = {
+      ...trimmedRequest,
+      // Ensure className is present and not empty
+      className: trimmedRequest.className && trimmedRequest.className.trim() !== ''
+        ? trimmedRequest.className.trim()
+        : undefined,
+    };
+
+    // Validate that className is present when currentSectionId is provided
+    if (requestBody.currentSectionId && (!requestBody.className || requestBody.className.trim() === '')) {
+      throw new Error('className is required when currentSectionId is provided. Please select a class.');
+    }
+
+    if (import.meta.env.DEV) {
+      console.log('🚀 Add Student API Call:', {
+        endpoint: API_ENDPOINTS.admin.students,
+        requestBody: {
+          ...requestBody,
+          className: requestBody.className,
+          classId: requestBody.classId || 'not provided',
+        },
+        classUUIDHeader: classUUID || 'not provided',
+        hasClassName: !!requestBody.className,
+        className: requestBody.className,
+        classNameLength: requestBody.className?.length || 0,
+        headers: Object.keys(headers).length > 0 ? headers : 'no headers',
+        fullPayload: JSON.stringify(requestBody, null, 2),
+      });
+    }
+
     const response = await apiClient.post<Student>(
       API_ENDPOINTS.admin.students,
-      request,
-      {
-        headers: {
-          'X-Class-UUID': classUUID,
-        },
-      }
+      requestBody,
+      Object.keys(headers).length > 0 ? { headers } : undefined
     );
+
+    if (import.meta.env.DEV) {
+      console.log('✅ Add Student API Response:', {
+        success: !!response.data,
+        student: response.data,
+        studentClass: response.data?.class || response.data?.className || 'not found',
+        responseStructure: response,
+      });
+    }
 
     if (import.meta.env.DEV) {
       console.log('Add Student API Response:', {
@@ -796,14 +885,49 @@ class AdminService {
     const response = await apiClient.get<FeeTypesResponse>(API_ENDPOINTS.admin.feeTypes);
 
     if (import.meta.env.DEV) {
-      console.log('Get Fee Types API Response:', response);
+      console.log('Get Fee Types API Response:', {
+        response,
+        data: response.data,
+        dataType: typeof response.data,
+        dataKeys: response.data ? Object.keys(response.data) : [],
+      });
     }
 
     if (!response.data) {
       throw new Error('Invalid response from server: No data received');
     }
 
-    return response.data;
+    // Handle different response structures
+    const responseData = response.data as any;
+
+    // Check if feeTypes is directly in data or nested
+    let feeTypesArray: FeeType[] = [];
+
+    if (Array.isArray(responseData)) {
+      // Response is directly an array
+      feeTypesArray = responseData;
+    } else if (responseData.feeTypes && Array.isArray(responseData.feeTypes)) {
+      // Response has feeTypes property
+      feeTypesArray = responseData.feeTypes;
+    } else if (responseData.data && Array.isArray(responseData.data)) {
+      // Response has nested data property
+      feeTypesArray = responseData.data;
+    } else if (responseData.feeTypesList && Array.isArray(responseData.feeTypesList)) {
+      // Alternative property name
+      feeTypesArray = responseData.feeTypesList;
+    }
+
+    if (import.meta.env.DEV) {
+      console.log('Fee Types Extracted:', {
+        feeTypesArray,
+        count: feeTypesArray.length,
+        sample: feeTypesArray[0],
+      });
+    }
+
+    return {
+      feeTypes: feeTypesArray,
+    };
   }
 
   /**
@@ -811,7 +935,7 @@ class AdminService {
    */
   async getStudentFees(params?: GetStudentFeesRequest): Promise<StudentFeesResponse> {
     let url = API_ENDPOINTS.admin.studentFees;
-    
+
     // Build query string if params provided
     if (params) {
       const queryParams = new URLSearchParams();
@@ -821,7 +945,7 @@ class AdminService {
       if (params.feeTypeId) queryParams.append('feeTypeId', params.feeTypeId);
       if (params.startDate) queryParams.append('startDate', params.startDate);
       if (params.endDate) queryParams.append('endDate', params.endDate);
-      
+
       const queryString = queryParams.toString();
       if (queryString) {
         url += `?${queryString}`;

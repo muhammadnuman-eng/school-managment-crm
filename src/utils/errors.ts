@@ -110,6 +110,8 @@ export const getUserFriendlyError = (error: ApiError): string => {
       'OTP_EXPIRED': 'OTP code has expired. Please request a new one.',
       'WEAK_PASSWORD': 'Password is too weak. Please use a stronger password.',
       'EMAIL_ALREADY_EXISTS': 'An account with this email already exists.',
+      'DUPLICATE_EMAIL': 'An account with this email already exists. Please use a different email.',
+      'USER_ALREADY_EXISTS': 'A user with this information already exists.',
       'NETWORK_ERROR': 'Network error. Please check your internet connection.',
       'SERVER_ERROR': 'Server error. Please try again later.',
     };
