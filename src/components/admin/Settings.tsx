@@ -1,16 +1,14 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { Card } from '../ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../ui/tabs';
 import { Button } from '../ui/button';
-import { Save, RotateCcw, Settings as SettingsIcon, Loader2 } from 'lucide-react';
+import { Save, RotateCcw, Settings as SettingsIcon } from 'lucide-react';
 import { BasicInformation } from './settings/BasicInformation';
 import { BrandingSection } from './settings/BrandingSection';
 import { DomainPlatform } from './settings/DomainPlatform';
 import { AdminPreferences } from './settings/AdminPreferences';
 import { BrandingPreview } from './settings/BrandingPreview';
 import { toast } from 'sonner@2.0.3';
-import { adminService, schoolService } from '../../services';
-import { schoolStorage } from '../../utils/storage';
 
 export interface SettingsData {
   // Basic Information
@@ -42,11 +40,11 @@ export interface SettingsData {
 }
 
 const defaultSettings: SettingsData = {
-  schoolName: '',
-  schoolTagline: '',
-  schoolEmail: '',
-  schoolPhone: '',
-  schoolAddress: '',
+  schoolName: 'Green Valley School',
+  schoolTagline: 'Empowering Education Through Technology',
+  schoolEmail: 'info@greenvalley.edu',
+  schoolPhone: '+92 300-1234567',
+  schoolAddress: 'Plot 123, Education Avenue\nIslamabad, Pakistan',
   
   schoolLogo: null,
   favicon: null,
@@ -55,293 +53,38 @@ const defaultSettings: SettingsData = {
   accentColor: '#10B981',
   fontFamily: 'Inter',
   
-  customDomain: '',
+  customDomain: 'greenvalley.edumanage.com',
   subdomainStatus: 'active',
   enableCustomEmailTemplates: true,
   
   timezone: 'Asia/Karachi',
   currency: 'PKR',
   defaultLanguage: 'English',
-  academicYearStart: '',
-  academicYearEnd: ''
+  academicYearStart: '2024-04-01',
+  academicYearEnd: '2025-03-31'
 };
 
 export function Settings() {
   const [settings, setSettings] = useState<SettingsData>(defaultSettings);
   const [hasChanges, setHasChanges] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
-  const [loading, setLoading] = useState(true);
-  const [systemSettings, setSystemSettings] = useState<any[]>([]);
-  const [dashboardStats, setDashboardStats] = useState<any>(null);
-  const [classesCount, setClassesCount] = useState<number>(0);
-
-  useEffect(() => {
-    fetchSettingsData();
-  }, []);
-
-  const fetchSettingsData = async () => {
-    try {
-      setLoading(true);
-      const schoolId = schoolStorage.getSchoolId();
-
-      if (!schoolId) {
-        toast.error('School ID not found');
-        setLoading(false);
-        return;
-      }
-
-      // Fetch school data, system settings, dashboard stats, and classes in parallel
-      const [schoolResponse, systemSettingsResponse, dashboardStatsResponse, classesResponse] = await Promise.all([
-        schoolService.getSchoolById(schoolId).catch((error) => {
-          console.error('Error fetching school:', error);
-          return { data: null };
-        }),
-        adminService.getSystemSettings().catch((error) => {
-          console.error('Error fetching system settings:', error);
-          return [];
-        }),
-        adminService.getDashboardStats().catch((error) => {
-          console.error('Error fetching dashboard stats:', error);
-          return null;
-        }),
-        adminService.getClasses().catch((error) => {
-          console.error('Error fetching classes:', error);
-          return { classes: [] };
-        }),
-      ]);
-
-      // Handle school response - could be direct object or wrapped in data
-      const school = schoolResponse?.data || schoolResponse || null;
-      
-      // Handle system settings response - could be array or wrapped
-      let settingsList: any[] = [];
-      if (Array.isArray(systemSettingsResponse)) {
-        settingsList = systemSettingsResponse;
-      } else if (systemSettingsResponse && Array.isArray(systemSettingsResponse.data)) {
-        settingsList = systemSettingsResponse.data;
-      } else if (systemSettingsResponse && systemSettingsResponse.settings) {
-        settingsList = Array.isArray(systemSettingsResponse.settings) 
-          ? systemSettingsResponse.settings 
-          : [];
-      }
-
-      // Format address from school data
-      let formattedAddress = '';
-      if (school) {
-        const addressParts = [];
-        if (school.streetAddress) addressParts.push(school.streetAddress);
-        if (school.city || school.stateProvince) {
-          addressParts.push(`${school.city || ''}${school.city && school.stateProvince ? ', ' : ''}${school.stateProvince || ''}`);
-        }
-        if (school.postalCode) addressParts.push(school.postalCode);
-        formattedAddress = addressParts.join('\n');
-      }
-
-      // Map school data to settings
-      const mappedSettings: SettingsData = {
-        schoolName: school?.name || '',
-        schoolTagline: school?.tagline || '',
-        schoolEmail: school?.contactEmail || '',
-        schoolPhone: school?.contactPhone || '',
-        schoolAddress: formattedAddress,
-        
-        schoolLogo: school?.logoUrl || school?.logo || null,
-        favicon: school?.faviconUrl || school?.favicon || null,
-        primaryColor: school?.primaryColor || '#2563EB',
-        secondaryColor: school?.secondaryColor || '#7C3AED',
-        accentColor: '#10B981', // Default, can be from settings
-        fontFamily: 'Inter', // Default, can be from settings
-        
-        customDomain: school?.customDomain || '',
-        subdomainStatus: school?.subdomain ? 'active' : 'inactive',
-        enableCustomEmailTemplates: true, // Default, can be from settings
-        
-        timezone: school?.timezone || 'Asia/Karachi',
-        currency: school?.currency || 'PKR',
-        defaultLanguage: school?.language || 'English',
-        academicYearStart: '', // Will be fetched from academic year
-        academicYearEnd: '', // Will be fetched from academic year
-      };
-
-      // Map system settings to settings data
-      settingsList.forEach((setting: any) => {
-        const key = setting.settingKey;
-        const value = setting.settingValue;
-        
-        switch (key) {
-          case 'accentColor':
-            mappedSettings.accentColor = value || '#10B981';
-            break;
-          case 'fontFamily':
-            mappedSettings.fontFamily = value || 'Inter';
-            break;
-          case 'enableCustomEmailTemplates':
-            mappedSettings.enableCustomEmailTemplates = value === 'true' || value === true;
-            break;
-          case 'academicYearStart':
-            mappedSettings.academicYearStart = value || '';
-            break;
-          case 'academicYearEnd':
-            mappedSettings.academicYearEnd = value || '';
-            break;
-        }
-      });
-
-      setSettings(mappedSettings);
-      setSystemSettings(settingsList);
-      
-      // Set dashboard stats
-      if (dashboardStatsResponse) {
-        setDashboardStats(dashboardStatsResponse);
-      }
-      
-      // Set classes count
-      if (classesResponse) {
-        let classes: any[] = [];
-        if (Array.isArray(classesResponse)) {
-          classes = classesResponse;
-        } else if (classesResponse && Array.isArray(classesResponse.classes)) {
-          classes = classesResponse.classes;
-        } else if (classesResponse && classesResponse.data && Array.isArray(classesResponse.data)) {
-          classes = classesResponse.data;
-        } else if (classesResponse && classesResponse.data && classesResponse.data.classes && Array.isArray(classesResponse.data.classes)) {
-          classes = classesResponse.data.classes;
-        }
-        setClassesCount(classes.length);
-      } else {
-        setClassesCount(0);
-      }
-      
-      if (import.meta.env.DEV) {
-        console.log('Settings data loaded:', {
-          school,
-          settingsList,
-          mappedSettings,
-          dashboardStats: dashboardStatsResponse,
-          classesCount: Array.isArray(classesResponse) 
-            ? classesResponse.length 
-            : Array.isArray(classesResponse?.classes) 
-              ? classesResponse.classes.length 
-              : 0,
-        });
-      }
-    } catch (error: any) {
-      console.error('Error fetching settings data:', error);
-      toast.error('Failed to load settings', {
-        description: error?.message || 'Please try again later',
-      });
-      // Set default settings on error
-      setSettings(defaultSettings);
-      setSystemSettings([]);
-    } finally {
-      setLoading(false);
-    }
-  };
 
   const handleChange = (field: keyof SettingsData, value: any) => {
     setSettings(prev => ({ ...prev, [field]: value }));
     setHasChanges(true);
   };
 
-  const handleSaveChanges = async () => {
-    try {
-      setIsSaving(true);
-      const schoolId = schoolStorage.getSchoolId();
-
-      if (!schoolId) {
-        toast.error('School ID not found');
-        return;
-      }
-
-      // Parse address
-      const addressLines = settings.schoolAddress.split('\n').filter(line => line.trim());
-      let streetAddress = '';
-      let city = '';
-      let stateProvince = '';
-      let postalCode = '';
-      
-      if (addressLines.length > 0) {
-        streetAddress = addressLines[0] || '';
-      }
-      if (addressLines.length > 1) {
-        const cityState = addressLines[1].split(',').map(s => s.trim());
-        city = cityState[0] || '';
-        stateProvince = cityState[1] || '';
-      }
-      if (addressLines.length > 2) {
-        postalCode = addressLines[2] || '';
-      }
-      
-      const address = {
-        streetAddress: streetAddress,
-        city: city || 'Islamabad',
-        stateProvince: stateProvince || 'Punjab',
-        postalCode: postalCode,
-        country: 'Pakistan',
-      };
-
-      // Prepare school update data
-      const schoolUpdateData: any = {
-        name: settings.schoolName,
-        tagline: settings.schoolTagline,
-        contactEmail: settings.schoolEmail,
-        contactPhone: settings.schoolPhone,
-        address: address,
-        logoUrl: settings.schoolLogo,
-        faviconUrl: settings.favicon,
-        primaryColor: settings.primaryColor,
-        secondaryColor: settings.secondaryColor,
-        customDomain: settings.customDomain,
-        timezone: settings.timezone,
-        currency: settings.currency,
-        language: settings.defaultLanguage,
-      };
-
-      // Update school
-      await schoolService.updateSchool(schoolId, schoolUpdateData);
-
-      // Update system settings
-      const settingsToUpdate = [
-        { key: 'accentColor', value: settings.accentColor },
-        { key: 'fontFamily', value: settings.fontFamily },
-        { key: 'enableCustomEmailTemplates', value: settings.enableCustomEmailTemplates.toString() },
-        { key: 'academicYearStart', value: settings.academicYearStart },
-        { key: 'academicYearEnd', value: settings.academicYearEnd },
-      ];
-
-      // Update or create system settings
-      for (const setting of settingsToUpdate) {
-        const existing = systemSettings.find((s: any) => s.settingKey === setting.key);
-        if (existing) {
-          await adminService.updateSystemSetting(existing.id, {
-            settingValue: setting.value,
-          });
-        } else {
-          await adminService.createSystemSetting({
-            schoolId,
-            settingKey: setting.key,
-            settingValue: setting.value,
-            settingType: 'STRING',
-            category: 'preferences',
-          });
-        }
-      }
-
+  const handleSaveChanges = () => {
+    setIsSaving(true);
+    
+    // Simulate API call
+    setTimeout(() => {
+      setIsSaving(false);
       setHasChanges(false);
       toast.success('Settings saved successfully!', {
-        description: 'Your school branding and settings have been updated.',
+        description: 'Your school branding and settings have been updated.'
       });
-
-      // Refresh data
-      await fetchSettingsData();
-    } catch (error: any) {
-      console.error('Error saving settings:', error);
-      toast.error('Failed to save settings', {
-        description: error.message || 'Please try again later',
-      });
-    } finally {
-      setIsSaving(false);
-    }
+    }, 1500);
   };
 
   const handleResetDefaults = () => {
@@ -349,18 +92,10 @@ export function Settings() {
       setSettings(defaultSettings);
       setHasChanges(true);
       toast.info('Settings reset to defaults', {
-        description: 'Remember to save changes to apply the defaults.',
+        description: 'Remember to save changes to apply the defaults.'
       });
     }
   };
-
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center min-h-[400px]">
-        <Loader2 className="w-8 h-8 animate-spin text-[#0A66C2]" />
-      </div>
-    );
-  }
 
   return (
     <div className="space-y-6">
@@ -378,14 +113,7 @@ export function Settings() {
       </div>
 
       {/* Preview Card */}
-      <BrandingPreview 
-        settings={settings} 
-        stats={{
-          totalStudents: dashboardStats?.students?.total || 0,
-          totalTeachers: dashboardStats?.teachers?.total || 0,
-          totalClasses: classesCount,
-        }}
-      />
+      <BrandingPreview settings={settings} />
 
       {/* Main Content */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -468,7 +196,7 @@ export function Settings() {
               >
                 {isSaving ? (
                   <>
-                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                    <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin mr-2" />
                     Saving...
                   </>
                 ) : (
@@ -482,7 +210,6 @@ export function Settings() {
                 onClick={handleResetDefaults}
                 variant="outline"
                 className="w-full"
-                disabled={isSaving}
               >
                 <RotateCcw className="w-4 h-4 mr-2" />
                 Reset to Defaults
@@ -515,19 +242,13 @@ export function Settings() {
             <div className="space-y-2 text-xs">
               <div className="flex items-center justify-between">
                 <span className="text-gray-600 dark:text-gray-400">Domain Status</span>
-                <span className={`px-2 py-1 rounded-full ${
-                  settings.subdomainStatus === 'active' 
-                    ? 'bg-green-100 dark:bg-green-900/20 text-green-700 dark:text-green-300'
-                    : settings.subdomainStatus === 'pending'
-                    ? 'bg-yellow-100 dark:bg-yellow-900/20 text-yellow-700 dark:text-yellow-300'
-                    : 'bg-gray-100 dark:bg-gray-900/20 text-gray-700 dark:text-gray-300'
-                }`}>
+                <span className="px-2 py-1 rounded-full bg-green-100 dark:bg-green-900/20 text-green-700 dark:text-green-300">
                   {settings.subdomainStatus}
                 </span>
               </div>
               <div className="flex items-center justify-between">
                 <span className="text-gray-600 dark:text-gray-400">Last Updated</span>
-                <span className="text-gray-900 dark:text-white">Just now</span>
+                <span className="text-gray-900 dark:text-white">2 hours ago</span>
               </div>
               <div className="flex items-center justify-between">
                 <span className="text-gray-600 dark:text-gray-400">Version</span>

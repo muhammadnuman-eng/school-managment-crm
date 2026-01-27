@@ -201,10 +201,10 @@ export function ExamList({ onViewExam, onCreateExam, onBack }: ExamListProps) {
             <SelectContent>
               <SelectItem value="all">All Types</SelectItem>
               <SelectItem value="QUIZ">Quiz</SelectItem>
-              <SelectItem value="MIDTERM">Mid-Term</SelectItem>
-              <SelectItem value="TEST">Test</SelectItem>
+              <SelectItem value="MID_TERM">Mid-Term</SelectItem>
               <SelectItem value="FINAL">Final</SelectItem>
               <SelectItem value="ASSIGNMENT">Assignment</SelectItem>
+              <SelectItem value="PROJECT">Project</SelectItem>
             </SelectContent>
           </Select>
 

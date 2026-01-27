@@ -65,122 +65,20 @@ const normalizeTeacher = (t: any): Teacher => {
     ? `${firstName} ${lastName}`.trim()
     : (t?.name || 'Unnamed Teacher');
   
-  // Handle subjects: Backend returns subjects array via TeacherSubject relation
-  // Extract subject names from subjects array
-  let subjectString = '';
-  if (t?.subject) {
-    // Direct subject string (backward compatibility)
-    subjectString = String(t.subject).trim();
-  } else if (t?.subjects && Array.isArray(t.subjects) && t.subjects.length > 0) {
-    // Extract subject names from subjects array
-    const subjectNames = t.subjects
-      .map((ts: any) => {
-        // Try multiple paths to get subject name
-        return ts?.subject?.subjectName || 
-               ts?.subjectName || 
-               ts?.subject?.name ||
-               ts?.name ||
-               '';
-      })
-      .filter((name: string) => name && name.trim().length > 0);
-    subjectString = subjectNames.length > 0 ? subjectNames.join(', ') : '';
-  } else if (t?.subjects && Array.isArray(t.subjects) && t.subjects.length === 0) {
-    subjectString = '—'; // No subjects assigned
-  }
-  
-  // If still empty, log for debugging
-  if (!subjectString && import.meta.env.DEV) {
-    console.warn('No subject found for teacher:', {
-      teacherId: t?.id,
-      teacherName: t?.firstName || t?.name,
-      hasSubjects: !!t?.subjects,
-      subjectsType: Array.isArray(t?.subjects) ? 'array' : typeof t?.subjects,
-      subjectsLength: Array.isArray(t?.subjects) ? t.subjects.length : 'N/A',
-      firstSubject: Array.isArray(t?.subjects) && t.subjects.length > 0 ? t.subjects[0] : null,
-    });
-  }
-
-  // Handle experience: Backend returns experienceYears as number, map to experience string
-  let experienceString = '';
-  if (t?.experience) {
-    // Direct experience string (backward compatibility)
-    experienceString = typeof t.experience === 'number' 
-      ? `${t.experience} years` 
-      : String(t.experience);
-  } else if (t?.experienceYears !== undefined && t?.experienceYears !== null) {
-    // Map experienceYears (number) to experience string
-    experienceString = `${t.experienceYears} years`;
-  }
-
-  // Handle email and phone from user object
-  const email = t?.email || t?.user?.email || '';
-  const phone = t?.phone || t?.user?.phone || '';
-
-  // Handle status - map employmentStatus to status
-  let status: 'Active' | 'Inactive' = 'Active';
-  if (t?.status) {
-    status = t.status === 'ACTIVE' || t.status === 'Active' ? 'Active' : 'Inactive';
-  } else if (t?.employmentStatus) {
-    status = t.employmentStatus === 'ACTIVE' ? 'Active' : 'Inactive';
-  }
-
-  // Handle classes count
-  let classesCount = 0;
-  if (typeof t?.classes === 'number') {
-    classesCount = t.classes;
-  } else if (t?._count?.classSubjects !== undefined) {
-    classesCount = t._count.classSubjects;
-  } else if (t?._count?.sectionsAsTeacher !== undefined) {
-    classesCount = t._count.sectionsAsTeacher;
-  }
-
   const normalized = {
     id: t?.id?.toString?.() || t?.uuid?.toString?.() || `${Date.now()}`,
     name: fullName,
     employeeId: t?.employeeId || '',
-    subject: subjectString,
+    subject: t?.subject || '',
     qualification: t?.qualification || '',
-    experience: experienceString,
-    email: email,
-    phone: phone,
-    classes: classesCount,
+    experience: t?.experience || '',
+    email: t?.email || '',
+    phone: t?.phone || '',
+    classes: typeof t?.classes === 'number' ? t.classes : 0,
     performance: typeof t?.performance === 'number' ? t.performance : 0,
-    status: status,
+    status: (t?.status as Teacher['status']) || 'Active',
     specialization: t?.specialization || '',
-    joiningDate: (() => {
-      if (!t?.joiningDate) return '';
-      
-      try {
-        if (typeof t.joiningDate === 'string') {
-          // If it's already in YYYY-MM-DD format, use it
-          if (t.joiningDate.match(/^\d{4}-\d{2}-\d{2}$/)) {
-            return t.joiningDate;
-          }
-          // If it's ISO string with time, extract date part
-          if (t.joiningDate.includes('T')) {
-            return t.joiningDate.split('T')[0];
-          }
-          // If it's in DD-MM-YYYY or other format, try to parse
-          const date = new Date(t.joiningDate);
-          if (!isNaN(date.getTime())) {
-            return date.toISOString().split('T')[0];
-          }
-          return t.joiningDate;
-        } else {
-          // Date object - convert to YYYY-MM-DD
-          const date = new Date(t.joiningDate);
-          if (!isNaN(date.getTime())) {
-            return date.toISOString().split('T')[0];
-          }
-          return '';
-        }
-      } catch (error) {
-        if (import.meta.env.DEV) {
-          console.warn('Error parsing joining date:', { joiningDate: t.joiningDate, error });
-        }
-        return '';
-      }
-    })(),
+    joiningDate: t?.joiningDate || '',
     address: t?.address || '',
   };
 
@@ -189,18 +87,12 @@ const normalizeTeacher = (t: any): Teacher => {
     if (normalized.id && normalized.name !== 'Unnamed Teacher') {
       console.log('Normalize Teacher:', {
         raw: t,
-        subjectsArray: t?.subjects,
-        subjectString: subjectString,
-        joiningDateRaw: t?.joiningDate,
-        joiningDateNormalized: normalized.joiningDate,
         normalized: normalized,
         fields: {
           firstName: t?.firstName,
           lastName: t?.lastName,
           name: t?.name,
-          subjects: t?.subjects,
           subject: t?.subject,
-          experienceYears: t?.experienceYears,
           experience: t?.experience,
           employeeId: t?.employeeId,
         },
@@ -325,12 +217,9 @@ export function Teachers() {
     );
   };
 
-  // Get current schoolId to track changes
-  const currentSchoolId = schoolStorage.getSchoolId();
-
   useEffect(() => {
     fetchTeachers();
-  }, [currentSchoolId]); // Refetch when schoolId changes
+  }, []);
 
   const fetchTeachers = async () => {
     setIsLoading(true);
@@ -545,82 +434,13 @@ export function Teachers() {
       }
       
       setEmployeeId(freshTeacher.employeeId);
-      
-      // Handle subject - get first subject from subjects array if available
-      let subjectToSet = '';
-      
-      // Priority 1: Try to get from normalized teacher's subject field (comma-separated)
-      if (freshTeacher.subject && freshTeacher.subject !== '—') {
-        // If subject is comma-separated, get first one
-        subjectToSet = freshTeacher.subject.split(',')[0].trim();
-      }
-      
-      // Priority 2: Try to get directly from response.data.subjects array
-      if (!subjectToSet && response.data?.subjects && Array.isArray(response.data.subjects) && response.data.subjects.length > 0) {
-        // Get first subject name from subjects array
-        const firstSubject = response.data.subjects[0];
-        subjectToSet = firstSubject?.subject?.subjectName || 
-                      firstSubject?.subjectName || 
-                      firstSubject?.subject?.name ||
-                      firstSubject?.name ||
-                      '';
-      }
-      
-      // Priority 3: Try from response.data.subject (direct field)
-      if (!subjectToSet && response.data?.subject) {
-        subjectToSet = String(response.data.subject).trim();
-      }
-      
-      if (import.meta.env.DEV) {
-        console.log('Edit Teacher - Subject Extraction:', {
-          freshTeacherSubject: freshTeacher.subject,
-          responseDataSubjects: response.data?.subjects,
-          extractedSubject: subjectToSet,
-        });
-      }
-      
-      setSelectedSubject(subjectToSet);
-      
+      setSelectedSubject(freshTeacher.subject);
       setQualification(freshTeacher.qualification || '');
       setSpecialization(freshTeacher.specialization || '');
-      
-      // Handle experience - convert from number to string format
-      let experienceToSet = freshTeacher.experience || '';
-      if (!experienceToSet && response.data?.experienceYears !== undefined && response.data?.experienceYears !== null) {
-        experienceToSet = `${response.data.experienceYears} years`;
-      } else if (!experienceToSet && response.data?.experience !== undefined && response.data?.experience !== null) {
-        experienceToSet = typeof response.data.experience === 'number' 
-          ? `${response.data.experience} years` 
-          : String(response.data.experience);
-      }
-      setExperience(experienceToSet);
+      setExperience(freshTeacher.experience || '');
       setEmail(freshTeacher.email);
       setPhone(freshTeacher.phone);
-      
-      // Handle joining date - ensure proper format (YYYY-MM-DD)
-      let joiningDateToSet = '';
-      if (response.data?.joiningDate) {
-        // Backend returns Date object or ISO string
-        if (typeof response.data.joiningDate === 'string') {
-          // If it's already in YYYY-MM-DD format, use it
-          if (response.data.joiningDate.match(/^\d{4}-\d{2}-\d{2}$/)) {
-            joiningDateToSet = response.data.joiningDate;
-          } else if (response.data.joiningDate.includes('T')) {
-            // ISO string format - extract date part
-            joiningDateToSet = response.data.joiningDate.split('T')[0];
-          } else {
-            joiningDateToSet = response.data.joiningDate;
-          }
-        } else {
-          // Date object - convert to YYYY-MM-DD
-          joiningDateToSet = new Date(response.data.joiningDate).toISOString().split('T')[0];
-        }
-      } else if (freshTeacher.joiningDate) {
-        // Fallback to normalized teacher's joining date
-        joiningDateToSet = freshTeacher.joiningDate;
-      }
-      setJoiningDate(joiningDateToSet);
-      
+      setJoiningDate(freshTeacher.joiningDate || '');
       setAddress(freshTeacher.address || '');
       
       setShowAddDialog(true);
@@ -631,7 +451,7 @@ export function Teachers() {
       setLastName(nameParts.slice(1).join(' ') || '');
       
       setEmployeeId(teacher.employeeId);
-      setSelectedSubject(teacher.subject || '');
+      setSelectedSubject(teacher.subject);
       setQualification(teacher.qualification || '');
       setSpecialization(teacher.specialization || '');
       setExperience(teacher.experience || '');
@@ -696,30 +516,19 @@ export function Teachers() {
       return;
     }
 
-    // Convert experience string to number (extract number from "5 years" or just "5")
-    let experienceYears: number | undefined;
-    if (experience.trim()) {
-      const experienceMatch = experience.trim().match(/(\d+)/);
-      if (experienceMatch) {
-        experienceYears = parseInt(experienceMatch[1], 10);
-      }
-    }
-
-    const payload: any = {
+    const payload: UpdateTeacherRequest = {
       name: `${trimmedFirst} ${trimmedLast}`.trim(),
       firstName: trimmedFirst,
       lastName: trimmedLast,
       employeeId: employeeId.trim(),
+      subject: selectedSubject.trim(),
       qualification: qualification.trim(),
       specialization: specialization.trim(),
-      experienceYears: experienceYears, // Send as number
+      experience: experience.trim(),
       email: trimmedEmail,
       phone: phone.trim(),
-      joiningDate: joiningDate.trim() || undefined,
+      joiningDate: joiningDate.trim(),
       address: address.trim(),
-      // Note: Subject will be handled separately via subjects array
-      // For now, we'll keep subject for backward compatibility
-      subject: selectedSubject.trim(), // Keep for backward compatibility
     };
 
     setIsSubmitting(true);
@@ -836,40 +645,25 @@ export function Teachers() {
     const trimmedJoining = joiningDate.trim();
     const trimmedAddress = address.trim();
 
-    // Convert experience string to number (extract number from "5 years" or just "5")
-    let experienceYears: number | undefined;
-    if (trimmedExperience) {
-      const experienceMatch = trimmedExperience.match(/(\d+)/);
-      if (experienceMatch) {
-        experienceYears = parseInt(experienceMatch[1], 10);
-      }
-    }
-
     const tempPassword = trimmedPhone && trimmedPhone.length >= 6
       ? `P@${trimmedPhone.slice(-6)}`
       : 'Temp@1234';
 
-    // Prepare subjects array for backend (backend expects CreateTeacherSubjectDto[])
-    // For now, we'll send subject as a string and let backend handle it
-    // Backend should create TeacherSubject entry based on subject name
-    const payload: any = {
+    const payload: AddTeacherRequest = {
       name: `${trimmedFirst} ${trimmedLast}`.trim(),
       firstName: trimmedFirst,
       lastName: trimmedLast,
       employeeId: trimmedEmployeeId,
+      subject: trimmedSubject,
       qualification: trimmedQualification,
       specialization: trimmedSpecialization,
-      experienceYears: experienceYears, // Send as number
+      experience: trimmedExperience,
       email: trimmedEmail,
       phone: trimmedPhone,
-      joiningDate: trimmedJoining || undefined,
+      joiningDate: trimmedJoining,
       address: trimmedAddress,
       password: tempPassword,
       schoolId: schoolId, // Add schoolId from storage
-      // Note: Subject will be handled separately via subjects array
-      // For now, we'll need to fetch subject ID from backend or create it
-      // This is a temporary solution - ideally we should have subject selection by ID
-      subject: trimmedSubject, // Keep for backward compatibility
     };
 
     setIsSubmitting(true);

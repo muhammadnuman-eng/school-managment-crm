@@ -91,13 +91,10 @@ export function Attendance() {
   const [attendanceHistory, setAttendanceHistory] = useState<LocalAttendanceRecord[]>([]);
   const [attendanceReport, setAttendanceReport] = useState<AttendanceReport | null>(null);
 
-  // Get current schoolId to track changes
-  const currentSchoolId = schoolStorage.getSchoolId();
-
-  // Fetch classes on mount and when schoolId changes
+  // Fetch classes on mount
   useEffect(() => {
     fetchClasses();
-  }, [currentSchoolId]); // Refetch when schoolId changes
+  }, []);
 
   // Fetch students when class and section are selected
   useEffect(() => {

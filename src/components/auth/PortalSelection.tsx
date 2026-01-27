@@ -1,4 +1,3 @@
-import { useState, useEffect } from 'react';
 import { Shield, BookOpen, GraduationCap, ArrowRight, Globe } from 'lucide-react';
 import { Button } from '../ui/button';
 import { Card } from '../ui/card';
@@ -92,7 +91,7 @@ export function PortalSelection({ onSelectPortal }: PortalSelectionProps) {
       icon: Shield,
       title: 'Administrator Portal',
       description: 'Manage schools, users, and system settings',
-      userCount: `${formatCount(counts.admins)} ${counts.admins === 1 ? 'Admin' : 'Admins'}`,
+      userCount: '24 Admins',
       color: 'blue',
       gradient: 'from-blue-500 to-blue-600',
       hoverBorder: 'hover:border-blue-500',
@@ -104,7 +103,7 @@ export function PortalSelection({ onSelectPortal }: PortalSelectionProps) {
       icon: BookOpen,
       title: 'Teacher Portal',
       description: 'Access classes, attendance, and student records',
-      userCount: `${formatCount(counts.teachers)} ${counts.teachers === 1 ? 'Teacher' : 'Teachers'}`,
+      userCount: '156 Teachers',
       color: 'purple',
       gradient: 'from-purple-500 to-purple-600',
       hoverBorder: 'hover:border-purple-500',
@@ -116,7 +115,7 @@ export function PortalSelection({ onSelectPortal }: PortalSelectionProps) {
       icon: GraduationCap,
       title: 'Student & Parent Portal',
       description: 'View schedules, results, fees, and announcements',
-      userCount: `${formatCount(counts.students)} ${counts.students === 1 ? 'Student' : 'Students'}`,
+      userCount: '1,234 Students',
       color: 'green',
       gradient: 'from-green-500 to-green-600',
       hoverBorder: 'hover:border-green-500',
@@ -164,15 +163,15 @@ export function PortalSelection({ onSelectPortal }: PortalSelectionProps) {
             {/* Stats */}
             <div className="grid grid-cols-3 gap-6 pt-8">
               <div className="text-center">
-                <div className="text-3xl mb-1">{formatCount(counts.schools)}</div>
+                <div className="text-3xl mb-1">24</div>
                 <div className="text-sm text-blue-200">Schools</div>
               </div>
               <div className="text-center">
-                <div className="text-3xl mb-1">{formatCount(counts.teachers)}</div>
+                <div className="text-3xl mb-1">156</div>
                 <div className="text-sm text-blue-200">Teachers</div>
               </div>
               <div className="text-center">
-                <div className="text-3xl mb-1">{formatCount(counts.students)}</div>
+                <div className="text-3xl mb-1">1.2K</div>
                 <div className="text-sm text-blue-200">Students</div>
               </div>
             </div>

@@ -10,7 +10,6 @@ import { DashboardStatsResponse } from '../../types/dashboard.types';
 import { toast } from 'sonner@2.0.3';
 import { getUserFriendlyError } from '../../utils/errors';
 import { ApiException } from '../../utils/errors';
-import { schoolStorage } from '../../utils/storage';
 
 // Default chart data fallbacks - Only used if API doesn't return data
 // Commented out to force API data usage - uncomment only for fallback
@@ -52,9 +51,6 @@ export function AdminDashboard() {
   const [isLoading, setIsLoading] = useState(true);
   const [hasError, setHasError] = useState(false);
 
-  // Get current schoolId to track changes
-  const currentSchoolId = schoolStorage.getSchoolId();
-
   useEffect(() => {
     const fetchDashboardStats = async () => {
       setIsLoading(true);
@@ -83,7 +79,6 @@ export function AdminDashboard() {
         // Log response for debugging
         if (import.meta.env.DEV) {
           console.log('Dashboard Stats Component - Received Data:', {
-            schoolId,
             data,
             hasRevenueData: !!data.revenueData,
             hasAttendanceTrend: !!data.attendanceTrend,
@@ -137,7 +132,7 @@ export function AdminDashboard() {
     };
 
     fetchDashboardStats();
-  }, [currentSchoolId]); // Re-fetch when schoolId changes
+  }, []);
 
   // Format number with commas - safe handling
   const formatNumber = (num: number | undefined | null): string => {

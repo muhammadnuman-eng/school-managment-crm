@@ -3,8 +3,6 @@ import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
 import { Sidebar } from './components/layout/Sidebar';
 import { Header } from './components/layout/Header';
-import { PortalSelection } from './components/auth/PortalSelection';
-import { UserRole } from './components/auth/AuthSystem';
 import { AdminDashboard } from './components/admin/AdminDashboard';
 import { AdminProfile } from './components/admin/AdminProfile';
 import { Students } from './components/admin/Students';
@@ -44,16 +42,15 @@ import { SchoolLoginPage } from './components/auth/SchoolLoginPage';
 import { authService } from './services';
 import { schoolStorage } from './utils/storage';
 import { toast } from 'sonner';
-import { clearAuthData } from './utils/storage';
 
 export default function App() {
   const { schoolId } = useParams<{ schoolId: string }>();
   const navigate = useNavigate();
   const location = useLocation();
-  
+
   // Set to true to bypass authentication for development
   const BYPASS_AUTH = false;
-  
+
   // Initialize authentication state - start with checking storage to prevent flash
   const [isAuthenticated, setIsAuthenticated] = useState(() => {
     if (BYPASS_AUTH) return true;
@@ -61,16 +58,16 @@ export default function App() {
     const authenticated = authService.isAuthenticated();
     return authenticated;
   });
-  
+
   const [isCheckingAuth, setIsCheckingAuth] = useState(true); // Add loading state
-  
+
   const [userType, setUserType] = useState<'admin' | 'teacher' | 'student'>(() => {
     // Try to restore from storage first
     const storedUserType = sessionStorage.getItem('app_user_type') as 'admin' | 'teacher' | 'student' | null;
     if (storedUserType && ['admin', 'teacher', 'student'].includes(storedUserType)) {
       return storedUserType;
     }
-    
+
     // Fallback to user data from auth service
     const user = authService.getCurrentUser();
     if (user?.role) {
@@ -85,7 +82,7 @@ export default function App() {
     }
     return 'admin';
   });
-  
+
   const [currentPage, setCurrentPage] = useState(() => {
     // Restore current page from storage on reload
     const storedPage = sessionStorage.getItem('app_current_page');
@@ -96,35 +93,29 @@ export default function App() {
   });
   const [theme, setTheme] = useState<'light' | 'dark'>('light');
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
-  
-  // Portal selection state - check if portal is selected
-  const [selectedPortal, setSelectedPortal] = useState<UserRole | null>(() => {
-    // Check if portal is already selected in session storage
-    const storedPortal = sessionStorage.getItem('app_selected_portal') as UserRole | null;
-    if (storedPortal && ['admin', 'teacher', 'student', 'parent'].includes(storedPortal)) {
-      return storedPortal;
-    }
-    return null;
-  });
 
   // Check authentication on mount and when storage changes
   useEffect(() => {
     if (!BYPASS_AUTH) {
       const checkAuth = () => {
         const authenticated = authService.isAuthenticated();
-        
-        // If not authenticated, don't redirect - let portal selection handle it
+
+        // If not authenticated and on protected route, redirect to login
         if (!authenticated) {
           setIsAuthenticated(false);
           setIsCheckingAuth(false);
-          // Don't redirect - portal selection will be shown
+          // Only redirect if we're on a protected route (not on login page)
+          const currentPath = window.location.pathname;
+          if (!currentPath.includes('/admin/login') && !currentPath.includes('/admin/school-login')) {
+            navigate('/admin/login');
+          }
           return;
         }
-        
+
         // User is authenticated
         setIsAuthenticated(true);
         setIsCheckingAuth(false);
-        
+
         // Update user type if authenticated
         const user = authService.getCurrentUser();
         if (user?.role) {
@@ -141,62 +132,59 @@ export default function App() {
           // Save user type to storage
           sessionStorage.setItem('app_user_type', newUserType);
         }
-        
-        // IMPORTANT: If portal is selected but user is on login pages, don't redirect
-        // Let the login flow complete first
-        const currentPath = location.pathname;
-        if (currentPath.includes('/login') || currentPath.includes('/school-login') || currentPath.includes('/login-success')) {
-          // User is in login flow, don't redirect
-          return;
-        }
-        
-        // For admin: Check if school ID exists before allowing dashboard access
-        if (selectedPortal === 'admin' && userType === 'admin') {
+
+        // Verify school ID matches route (only if authenticated and portal is selected)
+        if (selectedPortal && schoolId) {
+          // Check schoolStorage first (most reliable)
           const storedSchoolId = schoolStorage.getSchoolId();
           const userSchoolId = user?.schoolId;
           const currentSchoolId = storedSchoolId || userSchoolId;
-          
+
           // If no school ID, redirect to school login (don't allow dashboard access)
           if (!currentSchoolId) {
             console.warn('Admin authenticated but no school ID, redirecting to school login');
             navigate('/admin/school-login');
             return;
           }
-          
+
           // If school ID exists, verify route matches
           if (schoolId && currentSchoolId !== schoolId) {
             // School ID mismatch - redirect to correct school dashboard
             console.log('School ID mismatch, redirecting:', { routeSchoolId: schoolId, currentSchoolId });
             navigate(`/admin/school/${currentSchoolId}/dashboard`);
-            return;
+          } else if (!currentSchoolId) {
+            // No school ID found - don't redirect, let portal selection handle it
+            console.warn('No school ID found');
           }
-          
-          // If no schoolId in route but we have one, redirect to dashboard
-          if (!schoolId && currentSchoolId) {
-            navigate(`/admin/school/${currentSchoolId}/dashboard`);
-            return;
+        } else if (selectedPortal && !schoolId) {
+          // No schoolId in route - check if we have one stored
+          const storedSchoolId = schoolStorage.getSchoolId();
+          if (storedSchoolId) {
+            // Redirect to dashboard with school ID
+            navigate(`/admin/school/${storedSchoolId}/dashboard`);
           }
+          // If no school ID, don't redirect - portal selection will handle it
         }
-        
+
         // Restore current page from storage if available
         const storedPage = sessionStorage.getItem('app_current_page');
         if (storedPage) {
           setCurrentPage(storedPage);
         }
       };
-      
+
       // Check immediately
       checkAuth();
-      
+
       // Listen for storage changes (for cross-tab sync)
       const handleStorageChange = (e: StorageEvent) => {
         if (e.key === 'auth_token' || e.key === 'auth_refresh_token' || e.key === 'auth_user' || e.key === 'school_uuid') {
           checkAuth();
         }
       };
-      
+
       window.addEventListener('storage', handleStorageChange);
-      
+
       return () => {
         window.removeEventListener('storage', handleStorageChange);
       };
@@ -242,29 +230,13 @@ export default function App() {
   };
 
   const getUserInfo = () => {
-    // Get real user data from auth service
-    const currentUser = authService.getCurrentUser();
-    
-    if (currentUser) {
-      // Format full name from firstName and lastName
-      const fullName = `${currentUser.firstName || ''} ${currentUser.lastName || ''}`.trim() || 
-                      currentUser.email?.split('@')[0] || 
-                      'User';
-      
-      return {
-        name: fullName,
-        email: currentUser.email || '',
-      };
-    }
-    
-    // Fallback to default values if user not found
     switch (userType) {
       case 'admin':
         return { name: 'Admin User', email: 'admin@edumanage.com' };
       case 'teacher':
-        return { name: 'Teacher', email: 'teacher@school.com' };
+        return { name: 'Dr. Sarah Mitchell', email: 'sarah.m@school.com' };
       case 'student':
-        return { name: 'Student', email: 'student@school.com' };
+        return { name: 'Emily Rodriguez', email: 'emily.r@school.com' };
     }
   };
 
@@ -351,19 +323,6 @@ export default function App() {
     }
   };
 
-  // Handle portal selection
-  const handlePortalSelect = (portal: UserRole) => {
-    setSelectedPortal(portal);
-    // Save portal selection to session storage
-    sessionStorage.setItem('app_selected_portal', portal);
-  };
-
-  // Handle back to portal selection from AuthSystem
-  const handleBackToPortalSelection = () => {
-    setSelectedPortal(null);
-    sessionStorage.removeItem('app_selected_portal');
-  };
-
   const handleLoginSuccess = (role: UserRole) => {
     setIsAuthenticated(true);
     const userTypeValue = role as 'admin' | 'teacher' | 'student';
@@ -372,21 +331,21 @@ export default function App() {
     // Save to storage
     sessionStorage.setItem('app_user_type', userTypeValue);
     sessionStorage.setItem('app_current_page', 'dashboard');
-    
+
     // If admin login, redirect to school login page
     if (role === 'admin') {
       // Check if school ID already exists
       const schoolId = schoolStorage.getSchoolId();
       const user = authService.getCurrentUser();
       const userSchoolId = user?.schoolId;
-      
+
       // If no school ID, redirect to school login
       if (!schoolId && !userSchoolId) {
         // Navigate to school login page
         window.location.href = '/admin/school-login';
         return;
       }
-      
+
       // If school ID exists, redirect to dashboard with school ID
       const finalSchoolId = schoolId || userSchoolId;
       if (finalSchoolId) {
@@ -402,37 +361,26 @@ export default function App() {
       await authService.logout({
         logoutAllDevices: false,
       });
-      
-      // Clear all auth data including schoolId
-      clearAuthData();
-      schoolStorage.clearSchoolId();
-      
-      // Reset portal selection on logout
-      setSelectedPortal(null);
-      sessionStorage.removeItem('app_selected_portal');
-      
+
       // Clear local state
       setIsAuthenticated(false);
       setCurrentPage('dashboard');
-      
+
       // Clear page storage on logout
       sessionStorage.removeItem('app_current_page');
       sessionStorage.removeItem('app_user_type');
-      
+
       // Show success message
       toast.success('Logged out successfully');
     } catch (error: any) {
       // Even if API fails, clear local state (tokens already cleared by service)
-      clearAuthData();
-      schoolStorage.clearSchoolId();
-      
       setIsAuthenticated(false);
       setCurrentPage('dashboard');
-      
+
       // Clear page storage on logout
       sessionStorage.removeItem('app_current_page');
       sessionStorage.removeItem('app_user_type');
-      
+
       // Show info message (not error, since local session is cleared)
       toast.info('Logged out successfully');
     }
@@ -482,96 +430,29 @@ export default function App() {
     );
   }
 
-  // Check current path to determine if we're in login flow
-  const currentPath = location.pathname;
-  const isOnLoginPage = currentPath.includes('/login') || currentPath.includes('/login-success');
-  
-  // For admin portal: Special handling
-  if (selectedPortal === 'admin') {
-    const storedSchoolId = schoolStorage.getSchoolId();
-    const user = authService.getCurrentUser();
-    const userSchoolId = user?.schoolId;
-    const hasSchoolId = storedSchoolId || userSchoolId;
-    
-    // If we're on admin login page, show AuthSystem
-    if (currentPath.includes('/admin/login') && !currentPath.includes('/school-login')) {
-      return (
-        <>
-          <AuthSystem 
-            onLoginSuccess={handleLoginSuccess} 
-            initialPortal={selectedPortal}
-            onBackToPortalSelection={handleBackToPortalSelection}
-          />
-          <Toaster />
-        </>
-      );
-    }
-    
-    // If no school ID, we need to go through login flow
-    if (!hasSchoolId) {
-      // If not authenticated, show admin login
-      if (!isAuthenticated) {
-        return (
-          <>
-            <AuthSystem 
-              onLoginSuccess={handleLoginSuccess} 
-              initialPortal={selectedPortal}
-              onBackToPortalSelection={handleBackToPortalSelection}
-            />
-            <Toaster />
-          </>
-        );
-      } else {
-        // Admin authenticated but no school ID - redirect to school login
-        if (currentPath !== '/admin/school-login') {
-          navigate('/admin/school-login');
-          return null;
-        }
-      }
-    }
-    // If has school ID and authenticated, allow dashboard access (will be handled below)
-  } else {
-    // For non-admin portals: Show login if not authenticated or on login page
-    if (!isAuthenticated || isOnLoginPage) {
-      return (
-        <>
-          <AuthSystem 
-            onLoginSuccess={handleLoginSuccess} 
-            initialPortal={selectedPortal}
-            onBackToPortalSelection={handleBackToPortalSelection}
-          />
-          <Toaster />
-        </>
-      );
-    }
-  }
-  
-  // If we reach here, user is authenticated and has completed login flow
-  // For admin: Must have school ID to access dashboard
-  if (selectedPortal === 'admin' && isAuthenticated) {
-    const storedSchoolId = schoolStorage.getSchoolId();
-    const user = authService.getCurrentUser();
-    const userSchoolId = user?.schoolId;
-    const hasSchoolId = storedSchoolId || userSchoolId;
-    
-    if (!hasSchoolId) {
-      // No school ID - redirect to school login
-      if (currentPath !== '/admin/school-login') {
-        navigate('/admin/school-login');
-        return null;
-      }
-    }
+  // Show authentication system if not authenticated (but portal is selected)
+  if (!isAuthenticated) {
+    return (
+      <>
+        <AuthSystem
+          onLoginSuccess={handleLoginSuccess}
+          initialPortal={selectedPortal}
+          onBackToPortalSelection={handleBackToPortalSelection}
+        />
+        <Toaster />
+      </>
+    );
   }
 
   return (
     <div className="flex h-screen bg-white dark:bg-gray-950">
-      <Sidebar 
-        userType={userType} 
-        currentPage={currentPage} 
+      <Sidebar
+        userType={userType}
+        currentPage={currentPage}
         onNavigate={handleNavigate}
         collapsed={sidebarCollapsed}
       />
-      
+
       <div className="flex-1 flex flex-col overflow-hidden">
         <Header
           userType={userType}
@@ -584,7 +465,7 @@ export default function App() {
           onLogout={handleLogout}
           onProfileSettings={handleProfileSettings}
         />
-        
+
         <main className="flex-1 overflow-y-auto p-6">
           <AnimatePresence mode="wait">
             <motion.div
@@ -599,7 +480,7 @@ export default function App() {
           </AnimatePresence>
         </main>
       </div>
-      
+
       <Toaster />
     </div>
   );
