@@ -3,8 +3,6 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
 import { Sidebar } from './components/layout/Sidebar';
 import { Header } from './components/layout/Header';
-import { PortalSelection } from './components/auth/PortalSelection';
-import { UserRole } from './components/auth/AuthSystem';
 import { AdminDashboard } from './components/admin/AdminDashboard';
 import { AdminProfile } from './components/admin/AdminProfile';
 import { Students } from './components/admin/Students';
@@ -42,7 +40,6 @@ import { AuthSystem, UserRole } from './components/auth/AuthSystem';
 import { authService } from './services';
 import { schoolStorage } from './utils/storage';
 import { toast } from 'sonner';
-import { clearAuthData } from './utils/storage';
 
 export default function App() {
   const { schoolId } = useParams<{ schoolId: string }>();
@@ -93,16 +90,6 @@ export default function App() {
   });
   const [theme, setTheme] = useState<'light' | 'dark'>('light');
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
-  
-  // Portal selection state - check if portal is selected
-  const [selectedPortal, setSelectedPortal] = useState<UserRole | null>(() => {
-    // Check if portal is already selected in session storage
-    const storedPortal = sessionStorage.getItem('app_selected_portal') as UserRole | null;
-    if (storedPortal && ['admin', 'teacher', 'student', 'parent'].includes(storedPortal)) {
-      return storedPortal;
-    }
-    return null;
-  });
 
   // Check authentication on mount and when storage changes
   useEffect(() => {
@@ -110,11 +97,15 @@ export default function App() {
       const checkAuth = () => {
         const authenticated = authService.isAuthenticated();
         
-        // If not authenticated, don't redirect - let portal selection handle it
+        // If not authenticated and on protected route, redirect to login
         if (!authenticated) {
           setIsAuthenticated(false);
           setIsCheckingAuth(false);
-          // Don't redirect - portal selection will be shown
+          // Only redirect if we're on a protected route (not on login page)
+          const currentPath = window.location.pathname;
+          if (!currentPath.includes('/admin/login') && !currentPath.includes('/admin/school-login')) {
+            navigate('/admin/login');
+          }
           return;
         }
         
@@ -139,8 +130,8 @@ export default function App() {
           sessionStorage.setItem('app_user_type', newUserType);
         }
         
-        // Verify school ID matches route (only if authenticated and portal is selected)
-        if (selectedPortal && schoolId) {
+        // Verify school ID matches route
+        if (schoolId) {
           // Check schoolStorage first (most reliable)
           const storedSchoolId = schoolStorage.getSchoolId();
           const user = authService.getCurrentUser();
@@ -154,17 +145,20 @@ export default function App() {
             console.log('School ID mismatch, redirecting:', { routeSchoolId: schoolId, currentSchoolId });
             navigate(`/admin/school/${currentSchoolId}/dashboard`);
           } else if (!currentSchoolId) {
-            // No school ID found - don't redirect, let portal selection handle it
-            console.warn('No school ID found');
+            // No school ID found - redirect to school login
+            console.warn('No school ID found, redirecting to school login');
+            navigate('/admin/school-login');
           }
-        } else if (selectedPortal && !schoolId) {
+        } else {
           // No schoolId in route - check if we have one stored
           const storedSchoolId = schoolStorage.getSchoolId();
           if (storedSchoolId) {
             // Redirect to dashboard with school ID
             navigate(`/admin/school/${storedSchoolId}/dashboard`);
+          } else {
+            // No school ID in storage either - redirect to school login
+            navigate('/admin/school-login');
           }
-          // If no school ID, don't redirect - portal selection will handle it
         }
         
         // Restore current page from storage if available
@@ -231,29 +225,13 @@ export default function App() {
   };
 
   const getUserInfo = () => {
-    // Get real user data from auth service
-    const currentUser = authService.getCurrentUser();
-    
-    if (currentUser) {
-      // Format full name from firstName and lastName
-      const fullName = `${currentUser.firstName || ''} ${currentUser.lastName || ''}`.trim() || 
-                      currentUser.email?.split('@')[0] || 
-                      'User';
-      
-      return {
-        name: fullName,
-        email: currentUser.email || '',
-      };
-    }
-    
-    // Fallback to default values if user not found
     switch (userType) {
       case 'admin':
         return { name: 'Admin User', email: 'admin@edumanage.com' };
       case 'teacher':
-        return { name: 'Teacher', email: 'teacher@school.com' };
+        return { name: 'Dr. Sarah Mitchell', email: 'sarah.m@school.com' };
       case 'student':
-        return { name: 'Student', email: 'student@school.com' };
+        return { name: 'Emily Rodriguez', email: 'emily.r@school.com' };
     }
   };
 
@@ -340,19 +318,6 @@ export default function App() {
     }
   };
 
-  // Handle portal selection
-  const handlePortalSelect = (portal: UserRole) => {
-    setSelectedPortal(portal);
-    // Save portal selection to session storage
-    sessionStorage.setItem('app_selected_portal', portal);
-  };
-
-  // Handle back to portal selection from AuthSystem
-  const handleBackToPortalSelection = () => {
-    setSelectedPortal(null);
-    sessionStorage.removeItem('app_selected_portal');
-  };
-
   const handleLoginSuccess = (role: UserRole) => {
     setIsAuthenticated(true);
     const userTypeValue = role as 'admin' | 'teacher' | 'student';
@@ -370,14 +335,6 @@ export default function App() {
         logoutAllDevices: false,
       });
       
-      // Clear all auth data including schoolId
-      clearAuthData();
-      schoolStorage.clearSchoolId();
-      
-      // Reset portal selection on logout
-      setSelectedPortal(null);
-      sessionStorage.removeItem('app_selected_portal');
-      
       // Clear local state
       setIsAuthenticated(false);
       setCurrentPage('dashboard');
@@ -390,9 +347,6 @@ export default function App() {
       toast.success('Logged out successfully');
     } catch (error: any) {
       // Even if API fails, clear local state (tokens already cleared by service)
-      clearAuthData();
-      schoolStorage.clearSchoolId();
-      
       setIsAuthenticated(false);
       setCurrentPage('dashboard');
       
@@ -419,25 +373,11 @@ export default function App() {
     );
   }
 
-  // Show portal selection first - until portal is selected, nothing else should show
-  if (!selectedPortal) {
-    return (
-      <>
-        <PortalSelection onSelectPortal={handlePortalSelect} />
-        <Toaster />
-      </>
-    );
-  }
-
-  // Show authentication system if not authenticated (but portal is selected)
+  // Show authentication system if not authenticated
   if (!isAuthenticated) {
     return (
       <>
-        <AuthSystem 
-          onLoginSuccess={handleLoginSuccess} 
-          initialPortal={selectedPortal}
-          onBackToPortalSelection={handleBackToPortalSelection}
-        />
+        <AuthSystem onLoginSuccess={handleLoginSuccess} />
         <Toaster />
       </>
     );

@@ -24,9 +24,6 @@ import { adminService } from '../../services';
 import { StudentFee, FeeType, Expense, CreateInvoiceRequest, CreateExpenseRequest } from '../../types/fee.types';
 import { Student } from '../../types/student.types';
 import { ApiException, getUserFriendlyError } from '../../utils/errors';
-import { authService } from '../../services';
-import { schoolStorage } from '../../utils/storage';
-import { CreateAnnouncementRequest } from '../../types/communication.types';
 
 // Mock data - commented out, using API data instead
 // const feeRecords = [
@@ -175,11 +172,11 @@ const expenseRecords = [
 
 const expenseCategories = [
   'SALARIES',
-  'INFRASTRUCTURE',
   'UTILITIES',
-  'SUPPLIES',
   'MAINTENANCE',
-  'TRANSPORTATION',
+  'SUPPLIES',
+  'TRANSPORT',
+  'HOSTEL',
   'OTHER'
 ];
 
@@ -320,23 +317,7 @@ export function FeeManagement() {
 
       // Fetch student fees
       const feesResponse = await adminService.getStudentFees();
-      
-      if (import.meta.env.DEV) {
-        console.log('FeeManagement - Fees Response:', {
-          feesResponse,
-          studentFees: feesResponse.studentFees,
-          studentFeesLength: feesResponse.studentFees?.length || 0,
-          firstFee: feesResponse.studentFees?.[0],
-        });
-      }
-      
       setStudentFees(feesResponse.studentFees || []);
-      
-      if (import.meta.env.DEV) {
-        console.log('FeeManagement - StudentFees state updated:', {
-          count: feesResponse.studentFees?.length || 0,
-        });
-      }
 
       // Fetch students for invoice form
       const studentsResponse = await adminService.getStudents();
@@ -378,15 +359,7 @@ export function FeeManagement() {
 
   // Calculate totals from API data
   const totalFees = useMemo(() => {
-    const total = studentFees.reduce((sum, record) => sum + (record.totalAmount || 0), 0);
-    if (import.meta.env.DEV) {
-      console.log('FeeManagement - Total Fees calculated:', {
-        studentFeesCount: studentFees.length,
-        total,
-        studentFees: studentFees,
-      });
-    }
-    return total;
+    return studentFees.reduce((sum, record) => sum + (record.totalAmount || 0), 0);
   }, [studentFees]);
 
   const totalPaid = useMemo(() => {
@@ -411,15 +384,6 @@ export function FeeManagement() {
 
   // Filter student fees
   const filteredStudentFees = useMemo(() => {
-    if (import.meta.env.DEV) {
-      console.log('FeeManagement - Filtering student fees:', {
-        totalStudentFees: studentFees.length,
-        searchQuery,
-        filterClass,
-        filterStatus,
-      });
-    }
-    
     let filtered = studentFees;
 
     // Search filter
@@ -440,13 +404,6 @@ export function FeeManagement() {
     // Status filter
     if (filterStatus) {
       filtered = filtered.filter(fee => fee.status === filterStatus);
-    }
-
-    if (import.meta.env.DEV) {
-      console.log('FeeManagement - Filtered student fees:', {
-        filteredCount: filtered.length,
-        filtered: filtered,
-      });
     }
 
     return filtered;
@@ -512,56 +469,16 @@ export function FeeManagement() {
 
     setIsSubmitting(true);
     try {
-      // Convert date to ISO 8601 format (YYYY-MM-DDTHH:mm:ss.sssZ)
-      let expenseDateISO = '';
-      if (expenseDate) {
-        // expenseDate is already in YYYY-MM-DD format from date input
-        if (expenseTime) {
-          // Combine date and time: "2026-01-20" + "09:55 PM" -> "2026-01-20T21:55:00.000Z"
-          const timeParts = expenseTime.trim().split(' ');
-          const period = timeParts[timeParts.length - 1]; // AM or PM
-          const timeStr = timeParts[0]; // "09:55"
-          const [hours, minutes] = timeStr.split(':');
-          let hour24 = parseInt(hours, 10);
-          if (period?.toUpperCase() === 'PM' && hour24 !== 12) hour24 += 12;
-          if (period?.toUpperCase() === 'AM' && hour24 === 12) hour24 = 0;
-          expenseDateISO = `${expenseDate}T${hour24.toString().padStart(2, '0')}:${minutes}:00.000Z`;
-        } else {
-          // Just date: "2026-01-20" -> "2026-01-20T00:00:00.000Z"
-          expenseDateISO = `${expenseDate}T00:00:00.000Z`;
-        }
-      } else {
-        toast.error('Please select a date');
-        setIsSubmitting(false);
-        return;
-      }
-
-      // Convert amount to number with max 2 decimal places
-      const amountDecimal = parseFloat(expenseAmount);
-      if (isNaN(amountDecimal) || amountDecimal <= 0) {
-        toast.error('Please enter a valid amount');
-        setIsSubmitting(false);
-        return;
-      }
-      
-      // Round to 2 decimal places to ensure proper format
-      const amountRounded = Math.round(amountDecimal * 100) / 100;
-
       const payload: CreateExpenseRequest = {
-        category: expenseCategory.trim().toUpperCase(), // Backend expects enum (SALARIES, UTILITIES, etc.)
+        category: expenseCategory.trim(),
         description: expenseDescription.trim(),
-        amount: amountRounded, // Number with max 2 decimal places
-        date: expenseDateISO, // ISO 8601 format - will be mapped to expenseDate in service
+        amount: parseFloat(expenseAmount),
+        date: expenseDate,
         time: expenseTime || undefined,
         paymentMethod: expensePaymentMethod || undefined,
         status: expenseStatus,
-        // approvedBy: Don't send if not UUID - backend will handle it
-        // approvedBy: expenseApprovedBy || undefined,
+        approvedBy: expenseApprovedBy || undefined,
       };
-
-      if (import.meta.env.DEV) {
-        console.log('Creating expense with payload:', payload);
-      }
 
       if (editingExpense) {
         // Update existing expense
@@ -610,75 +527,6 @@ export function FeeManagement() {
     return `PKR ${amount.toLocaleString('en-PK')}`;
   };
 
-  // Send payment reminder to student
-  const handleSendReminder = async (feeRecord: StudentFee) => {
-    try {
-      const currentUser = authService.getCurrentUser();
-      const schoolId = schoolStorage.getSchoolId();
-
-      if (!currentUser || !currentUser.id) {
-        toast.error('User information not found. Please login again.');
-        return;
-      }
-
-      if (!schoolId) {
-        toast.error('School information not found. Please select a school.');
-        return;
-      }
-
-      // Extract class and section from class string (e.g., "grade3A" -> class: "grade3", section: "A")
-      // Or get from student data if available
-      const classMatch = feeRecord.class?.match(/^([^0-9]+)(\d+)([A-Z]?)$/i);
-      let classId: string | undefined;
-      let sectionId: string | undefined;
-
-      // Try to find student to get class/section IDs
-      if (students && Array.isArray(students)) {
-        const student = students.find(s => s.id === feeRecord.studentId);
-        if (student) {
-          // If student has classId and sectionId, use them
-          if ((student as any).currentClassId) {
-            classId = (student as any).currentClassId;
-          }
-          if ((student as any).currentSectionId) {
-            sectionId = (student as any).currentSectionId;
-          }
-        }
-      }
-
-      // Create announcement for fee reminder
-      const reminderContent = `Dear ${feeRecord.studentName},\n\nThis is a reminder that you have a pending payment of ${formatCurrency(feeRecord.dueAmount || 0)} for ${feeRecord.feeTypeName}.\n\n${feeRecord.dueDate ? `Due Date: ${feeRecord.dueDate}` : 'Please make the payment at your earliest convenience.'}\n\nThank you for your attention.`;
-
-      const announcementPayload: CreateAnnouncementRequest = {
-        schoolId: schoolId,
-        createdBy: currentUser.id,
-        title: `Payment Reminder - ${feeRecord.feeTypeName}`,
-        content: reminderContent,
-        category: 'GENERAL', // Backend supports: HOLIDAY, EVENT, MEETING, GENERAL
-        priority: 'HIGH',
-        targetAudience: classId && sectionId ? 'SPECIFIC_CLASSES' : 'STUDENTS', // Backend uses SPECIFIC_CLASSES (plural)
-        targets: classId && sectionId ? [
-          {
-            classId: classId,
-            sectionId: sectionId,
-          }
-        ] : undefined,
-      };
-
-      await adminService.createAnnouncement(announcementPayload);
-      toast.success(`Reminder sent successfully to ${feeRecord.studentName}!`);
-    } catch (error: any) {
-      console.error('Error sending reminder:', error);
-      let errorMessage = 'Failed to send reminder';
-      if (error instanceof ApiException) {
-        errorMessage = getUserFriendlyError(error);
-      } else if (error?.message) {
-        errorMessage = error.message;
-      }
-      toast.error(errorMessage);
-    }
-  };
-
   const formatDateTime = (date: string | null, time: string | null) => {
     if (!date) return 'N/A';
     const dateStr = new Date(date).toLocaleDateString('en-PK', {
@@ -712,7 +560,6 @@ export function FeeManagement() {
       </div>
 
       {/* Summary Cards - Compact Gradient Cards */}
-      {/* Show invoice cards only for invoices, reminders, and reports tabs */}
       {activeTab === 'invoices' || activeTab === 'reminders' || activeTab === 'reports' ? (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           <div className="relative overflow-hidden rounded-2xl p-5 bg-gradient-to-br from-purple-600 to-purple-700 shadow-lg hover:shadow-xl transition-all duration-300 hover:-translate-y-1 cursor-pointer">
@@ -742,7 +589,7 @@ export function FeeManagement() {
             </div>
           </div>
         </div>
-      ) : activeTab === 'expenses' ? (
+      ) : (
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           <div className="relative overflow-hidden rounded-2xl p-5 bg-gradient-to-br from-purple-600 to-purple-700 shadow-lg hover:shadow-xl transition-all duration-300 hover:-translate-y-1 cursor-pointer">
             <div className="absolute inset-0 bg-white/5"></div>
@@ -771,7 +618,7 @@ export function FeeManagement() {
             </div>
           </div>
         </div>
-      ) : null}
+      )}
 
       <Tabs value={activeTab} onValueChange={setActiveTab}>
         <TabsList>
@@ -1078,13 +925,7 @@ export function FeeManagement() {
                       </p>
                     )}
                   </div>
-                  <Button 
-                    size="sm" 
-                    variant="outline"
-                    onClick={() => handleSendReminder(record)}
-                  >
-                    Send Reminder
-                  </Button>
+                  <Button size="sm" variant="outline">Send Reminder</Button>
                 </div>
               ))}
             </div>
@@ -1115,38 +956,10 @@ export function FeeManagement() {
                   </span>
                 </div>
               </div>
-              <div className="flex gap-2 mt-6">
-                <Button 
-                  className="flex-1" 
-                  variant="outline"
-                  onClick={async () => {
-                    try {
-                      await adminService.downloadFeeReport('csv');
-                      toast.success('Fee report downloaded successfully!');
-                    } catch (error: any) {
-                      toast.error(error?.message || 'Failed to download fee report');
-                    }
-                  }}
-                >
-                  <Download className="w-4 h-4 mr-2" />
-                  Download CSV
-                </Button>
-                <Button 
-                  className="flex-1" 
-                  variant="outline"
-                  onClick={async () => {
-                    try {
-                      await adminService.downloadFeeReport('json');
-                      toast.success('Fee report downloaded successfully!');
-                    } catch (error: any) {
-                      toast.error(error?.message || 'Failed to download fee report');
-                    }
-                  }}
-                >
-                  <Download className="w-4 h-4 mr-2" />
-                  Download JSON
-                </Button>
-              </div>
+              <Button className="w-full mt-6" variant="outline">
+                <Download className="w-4 h-4 mr-2" />
+                Download Report
+              </Button>
             </Card>
 
             <Card className="p-6">
@@ -1171,38 +984,10 @@ export function FeeManagement() {
                   </span>
                 </div>
               </div>
-              <div className="flex gap-2 mt-6">
-                <Button 
-                  className="flex-1" 
-                  variant="outline"
-                  onClick={async () => {
-                    try {
-                      await adminService.downloadFeeReport('csv');
-                      toast.success('Fee report downloaded successfully!');
-                    } catch (error: any) {
-                      toast.error(error?.message || 'Failed to download fee report');
-                    }
-                  }}
-                >
-                  <Download className="w-4 h-4 mr-2" />
-                  Download CSV
-                </Button>
-                <Button 
-                  className="flex-1" 
-                  variant="outline"
-                  onClick={async () => {
-                    try {
-                      await adminService.downloadFeeReport('json');
-                      toast.success('Fee report downloaded successfully!');
-                    } catch (error: any) {
-                      toast.error(error?.message || 'Failed to download fee report');
-                    }
-                  }}
-                >
-                  <Download className="w-4 h-4 mr-2" />
-                  Download JSON
-                </Button>
-              </div>
+              <Button className="w-full mt-6" variant="outline">
+                <Download className="w-4 h-4 mr-2" />
+                Download Report
+              </Button>
             </Card>
           </div>
 
@@ -1391,7 +1176,7 @@ export function FeeManagement() {
                     <SelectContent>
                       {expenseCategories.map(cat => (
                         <SelectItem key={cat} value={cat}>
-                          {cat.charAt(0) + cat.slice(1).toLowerCase().replace(/_/g, ' ')}
+                          {cat.charAt(0) + cat.slice(1).toLowerCase().replace('_', ' ')}
                         </SelectItem>
                       ))}
                     </SelectContent>

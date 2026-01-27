@@ -4,8 +4,7 @@
  */
 
 import { apiClient } from './api.client';
-import { API_ENDPOINTS, getApiUrl } from '../config/api.config';
-import { tokenStorage, schoolStorage } from '../utils/storage';
+import { API_ENDPOINTS } from '../config/api.config';
 import { DashboardStatsResponse } from '../types/dashboard.types';
 import { AddStudentRequest, UpdateStudentRequest, GetStudentsRequest, StudentsResponse, Student, ClassInfo, SectionInfo } from '../types/student.types';
 import { AddClassRequest, UpdateClassRequest, ClassResponse, ClassesListResponse } from '../types/class.types';
@@ -13,6 +12,7 @@ import { Teacher, TeachersResponse, AddTeacherRequest, UpdateTeacherRequest } fr
 import { FeeType, FeeTypesResponse, StudentFee, StudentFeesResponse, GetStudentFeesRequest, CreateInvoiceRequest, Expense, ExpensesResponse, CreateExpenseRequest } from '../types/fee.types';
 import { AcademicYear, CreateAcademicYearRequest, AcademicYearsResponse } from '../types/academic-year.types';
 import { ApiResponse } from '../types/api.types';
+import { schoolStorage } from '../utils/storage';
 import {
   AttendanceRecord,
   CreateAttendanceRequest,
@@ -294,30 +294,10 @@ class AdminService {
     }
 
     // Convert sectionId to currentSectionId if present (backend expects currentSectionId)
-    // Convert className to currentClassId if present (backend expects currentClassId, not className)
     const requestBody: any = { ...request };
     if (requestBody.sectionId) {
       requestBody.currentSectionId = requestBody.sectionId;
       delete requestBody.sectionId;
-    }
-    
-    // IMPORTANT: Backend expects currentClassId (as class name string), not className
-    if (requestBody.className) {
-      requestBody.currentClassId = requestBody.className.trim();
-      delete requestBody.className;
-    }
-
-    // Log for debugging
-    if (import.meta.env.DEV) {
-      console.log('📝 Update Student Request Body Conversion:', {
-        originalRequest: request,
-        convertedRequestBody: requestBody,
-        hasCurrentClassId: !!requestBody.currentClassId,
-        currentClassId: requestBody.currentClassId,
-        hasCurrentSectionId: !!requestBody.currentSectionId,
-        currentSectionId: requestBody.currentSectionId,
-        classUUIDHeader: classUUID || 'not provided',
-      });
     }
 
     const response = await apiClient.patch<Student>(
@@ -529,31 +509,18 @@ class AdminService {
       throw new Error(`Missing required fields: ${missingFields.join(', ')}`);
     }
 
-    // IMPORTANT: Backend expects currentClassId (as class name string), not className
-    // Convert className to currentClassId for backend compatibility
-    const classNameValue = trimmedRequest.className?.trim() || '';
-    const requestBody: any = {
+    // Ensure className is always in the request body (backend requirement when section is provided)
+    const requestBody: AddStudentRequest = {
       ...trimmedRequest,
-      // Backend expects currentClassId (class name string like "Class 3"), not className
-      currentClassId: classNameValue || undefined,
-      // Remove className from request body (backend doesn't use it)
-      className: undefined,
+      // Ensure className is present and not empty
+      className: trimmedRequest.className && trimmedRequest.className.trim() !== ''
+        ? trimmedRequest.className.trim()
+        : undefined,
     };
 
-    // Validate that currentClassId is present when currentSectionId is provided
-    if (requestBody.currentSectionId && (!requestBody.currentClassId || requestBody.currentClassId.trim() === '')) {
-      throw new Error('Class is required when section is provided. Please select a class.');
-    }
-
-    // Log for debugging
-    if (import.meta.env.DEV) {
-      console.log('📝 Add Student Request Body Conversion:', {
-        originalClassName: trimmedRequest.className,
-        convertedCurrentClassId: requestBody.currentClassId,
-        currentSectionId: requestBody.currentSectionId,
-        hasCurrentClassId: !!requestBody.currentClassId,
-        hasCurrentSectionId: !!requestBody.currentSectionId,
-      });
+    // Validate that className is present when currentSectionId is provided
+    if (requestBody.currentSectionId && (!requestBody.className || requestBody.className.trim() === '')) {
+      throw new Error('className is required when currentSectionId is provided. Please select a class.');
     }
 
     if (import.meta.env.DEV) {
@@ -561,13 +528,13 @@ class AdminService {
         endpoint: API_ENDPOINTS.admin.students,
         requestBody: {
           ...requestBody,
-          currentClassId: requestBody.currentClassId,
+          className: requestBody.className,
           classId: requestBody.classId || 'not provided',
         },
         classUUIDHeader: classUUID || 'not provided',
-        hasCurrentClassId: !!requestBody.currentClassId,
-        currentClassId: requestBody.currentClassId,
-        currentClassIdLength: requestBody.currentClassId?.length || 0,
+        hasClassName: !!requestBody.className,
+        className: requestBody.className,
+        classNameLength: requestBody.className?.length || 0,
         headers: Object.keys(headers).length > 0 ? headers : 'no headers',
         fullPayload: JSON.stringify(requestBody, null, 2),
       });
@@ -985,158 +952,17 @@ class AdminService {
       }
     }
 
-    const response = await apiClient.get<any>(url);
+    const response = await apiClient.get<StudentFeesResponse>(url);
 
     if (import.meta.env.DEV) {
-      console.log('Get Student Fees API Request:', { url, params });
-      console.log('Get Student Fees API Response (Raw):', { 
-        response, 
-        responseKeys: response ? Object.keys(response) : [],
-        data: response.data,
-        dataType: typeof response.data,
-        dataKeys: response.data ? Object.keys(response.data) : [],
-        hasData: !!response.data?.data,
-        hasStudentFees: !!response.data?.studentFees,
-        dataLength: response.data?.data?.length,
-        studentFeesLength: response.data?.studentFees?.length,
-        isArray: Array.isArray(response.data),
-        fullResponseString: JSON.stringify(response, null, 2),
-      });
+      console.log('Get Student Fees API Response:', { params, response });
     }
 
     if (!response.data) {
       throw new Error('Invalid response from server: No data received');
     }
 
-    // Normalize backend response to frontend format
-    // Backend returns: { data: [...], meta: {...} }
-    // apiClient.handleResponse extracts data.data if exists, else returns data
-    // So response.data could be:
-    //   - The array directly: [...]
-    //   - Or the object: { data: [...], meta: {...} }
-    let rawFees: any[] = [];
-    
-    if (Array.isArray(response.data)) {
-      // response.data is already the array
-      rawFees = response.data;
-    } else if (response.data?.data && Array.isArray(response.data.data)) {
-      // response.data is { data: [...], meta: {...} }
-      rawFees = response.data.data;
-    } else if (response.data?.studentFees && Array.isArray(response.data.studentFees)) {
-      // Alternative structure
-      rawFees = response.data.studentFees;
-    }
-    
-    if (import.meta.env.DEV) {
-      console.log('Raw fees extracted:', {
-        hasData: !!response.data?.data,
-        hasStudentFees: !!response.data?.studentFees,
-        dataLength: response.data?.data?.length,
-        studentFeesLength: response.data?.studentFees?.length,
-        rawFeesLength: rawFees.length,
-        rawFees: rawFees,
-        fullResponse: response.data,
-      });
-    }
-    const normalizedFees: StudentFee[] = rawFees.map((fee: any) => {
-      // Extract student name from nested structure (backend returns fee.student.name or fee.student.user)
-      const studentName = fee.student?.name 
-        || (fee.student?.user 
-          ? `${fee.student.user.firstName || ''} ${fee.student.user.lastName || ''}`.trim()
-          : null)
-        || fee.studentName 
-        || 'Unknown Student';
-
-      // Extract roll number
-      const rollNo = fee.student?.studentId || fee.student?.admissionNumber || fee.student?.rollNumber || fee.rollNo;
-
-      // Extract class name (backend returns fee.class directly)
-      const className = fee.class || 
-        (fee.student?.currentClass?.className 
-          ? `${fee.student.currentClass.className}${fee.student.currentSection?.sectionName || ''}`
-          : 'N/A');
-
-      // Get feeTypeId and feeTypeName from backend response
-      const feeTypeId = fee.feeTypeId || '';
-      const feeTypeName = fee.feeTypeName || 
-        (() => {
-          const feeTypeMapping: Record<string, string> = {
-            'tuition-fee': 'Tuition Fee',
-            'academic-fee': 'Academic Fee',
-            'transport-fee': 'Transport Fee',
-            'hostel-fee': 'Hostel Fee',
-            'library-fee': 'Library Fee',
-            'lab-fee': 'Lab Fee',
-            'sports-fee': 'Sports Fee',
-            'examination-fee': 'Examination Fee',
-            'admission-fee': 'Admission Fee',
-            'registration-fee': 'Registration Fee',
-          };
-          return feeTypeMapping[feeTypeId.toLowerCase()] || feeTypeId || 'Unknown Fee Type';
-        })();
-
-      // Convert status from backend format to frontend format
-      const statusMap: Record<string, 'Paid' | 'Partial' | 'Pending'> = {
-        'PAID': 'Paid',
-        'PARTIAL': 'Partial',
-        'PENDING': 'Pending',
-      };
-      const normalizedStatus = statusMap[fee.status?.toUpperCase()] || 'Pending';
-
-      // Extract payment date (backend returns fee.paymentDate directly)
-      const paidDate = fee.paymentDate || null;
-      const paidTime = paidDate 
-        ? new Date(paidDate).toLocaleTimeString('en-PK', { hour: '2-digit', minute: '2-digit' })
-        : null;
-
-      // Format dates
-      const createdAt = fee.createdAt ? new Date(fee.createdAt).toISOString().split('T')[0] : null;
-      const createdTime = fee.createdAt 
-        ? new Date(fee.createdAt).toLocaleTimeString('en-PK', { hour: '2-digit', minute: '2-digit' })
-        : null;
-
-      return {
-        id: fee.id,
-        studentId: fee.studentId || fee.student?.id,
-        studentName,
-        rollNo,
-        class: className,
-        section: fee.student?.currentSection?.sectionName,
-        feeTypeId,
-        feeTypeName,
-        totalAmount: typeof fee.totalAmount === 'string' ? parseFloat(fee.totalAmount) : (fee.totalAmount || 0),
-        paidAmount: typeof fee.paidAmount === 'string' ? parseFloat(fee.paidAmount) : (fee.paidAmount || 0),
-        dueAmount: typeof fee.dueAmount === 'string' ? parseFloat(fee.dueAmount) : (fee.dueAmount || 0),
-        status: normalizedStatus,
-        dueDate: fee.dueDate ? new Date(fee.dueDate).toISOString().split('T')[0] : undefined,
-        paidDate: paidDate ? new Date(paidDate).toISOString().split('T')[0] : undefined,
-        paidTime,
-        createdAt,
-        createdTime,
-      };
-    });
-
-    // Extract meta from response (could be in response.data.meta or response.meta)
-    const meta = (Array.isArray(response.data) ? null : response.data?.meta) || response.meta || {};
-    
-    const normalizedResponse: StudentFeesResponse = {
-      studentFees: normalizedFees,
-      total: meta.total || normalizedFees.length,
-      totalAmount: meta.totalAmount,
-      totalPaid: meta.totalPaid,
-      totalDue: meta.totalDue,
-    };
-
-    if (import.meta.env.DEV) {
-      console.log('Get Student Fees API Response (Normalized):', { 
-        rawCount: rawFees.length, 
-        normalizedCount: normalizedFees.length,
-        normalizedResponse,
-        firstFee: normalizedFees[0],
-      });
-    }
-
-    return normalizedResponse;
+    return response.data;
   }
 
   /**
@@ -1163,128 +989,30 @@ class AdminService {
    * Get Expenses
    */
   async getExpenses(): Promise<ExpensesResponse> {
-    const response = await apiClient.get<any>(API_ENDPOINTS.admin.expenses);
+    const response = await apiClient.get<ExpensesResponse>(API_ENDPOINTS.admin.expenses);
 
     if (import.meta.env.DEV) {
-      console.log('Get Expenses API Response (Raw):', { 
-        response, 
-        data: response.data,
-        dataKeys: response.data ? Object.keys(response.data) : [],
-        isArray: Array.isArray(response.data),
-      });
+      console.log('Get Expenses API Response:', response);
     }
 
     if (!response.data) {
       throw new Error('Invalid response from server: No data received');
     }
 
-    // Normalize backend response to frontend format
-    // Backend returns: { data: [...], meta: {...} }
-    // apiClient.handleResponse extracts data.data if exists, else returns data
-    let rawExpenses: any[] = [];
-    
-    if (Array.isArray(response.data)) {
-      // response.data is already the array
-      rawExpenses = response.data;
-    } else if (response.data?.data && Array.isArray(response.data.data)) {
-      // response.data is { data: [...], meta: {...} }
-      rawExpenses = response.data.data;
-    }
-
-    const normalizedExpenses: Expense[] = rawExpenses.map((expense: any) => {
-      // Backend returns expenseDate, frontend expects date
-      const expenseDate = expense.expenseDate || expense.date;
-      const dateStr = expenseDate ? new Date(expenseDate).toISOString().split('T')[0] : '';
-      const timeStr = expenseDate 
-        ? new Date(expenseDate).toLocaleTimeString('en-PK', { hour: '2-digit', minute: '2-digit' })
-        : undefined;
-
-      // Convert status from backend format to frontend format
-      const statusMap: Record<string, 'Paid' | 'Pending' | 'Approved'> = {
-        'PAID': 'Paid',
-        'APPROVED': 'Approved',
-        'PENDING': 'Pending',
-      };
-      const normalizedStatus = statusMap[expense.status?.toUpperCase()] || 'Pending';
-
-      return {
-        id: expense.id,
-        category: expense.category,
-        description: expense.description || '',
-        amount: typeof expense.amount === 'string' ? parseFloat(expense.amount) : (expense.amount || 0),
-        date: dateStr,
-        time: timeStr,
-        status: normalizedStatus,
-        paymentMethod: expense.paymentMethod,
-        approvedBy: expense.approvedBy || undefined,
-        createdAt: expense.createdAt ? new Date(expense.createdAt).toISOString().split('T')[0] : undefined,
-        createdTime: expense.createdAt 
-          ? new Date(expense.createdAt).toLocaleTimeString('en-PK', { hour: '2-digit', minute: '2-digit' })
-          : undefined,
-      };
-    });
-
-    // Extract meta from response
-    const meta = (Array.isArray(response.data) ? null : response.data?.meta) || response.meta || {};
-
-    const normalizedResponse: ExpensesResponse = {
-      expenses: normalizedExpenses,
-      total: meta.total || normalizedExpenses.length,
-      totalPaid: meta.totalPaid,
-      totalPending: meta.totalPending,
-    };
-
-    if (import.meta.env.DEV) {
-      console.log('Get Expenses API Response (Normalized):', { 
-        rawCount: rawExpenses.length, 
-        normalizedCount: normalizedExpenses.length,
-        normalizedResponse,
-        firstExpense: normalizedExpenses[0],
-      });
-    }
-
-    return normalizedResponse;
+    return response.data;
   }
 
   /**
    * Create Expense
    */
   async createExpense(request: CreateExpenseRequest): Promise<ApiResponse<Expense>> {
-    // Transform frontend request to backend DTO format
-    // Backend expects: { schoolId?, category, amount, description?, expenseDate, approvedBy? }
-    // Frontend sends: { category, description, amount, date, time?, paymentMethod?, status?, approvedBy? }
-    // schoolId will be injected by backend from @CurrentSchool() decorator (from x-school-uuid header)
-    const backendPayload: any = {
-      category: request.category, // Already uppercase from frontend (SALARIES, UTILITIES, etc.)
-      description: request.description,
-      amount: request.amount, // Number (already validated and rounded in component)
-      expenseDate: request.date, // Backend expects expenseDate (ISO 8601 format)
-      // schoolId: Not included - will be injected by backend from @CurrentSchool() decorator (x-school-uuid header)
-      // approvedBy will be handled below if provided (must be UUID)
-    };
-
-    // Only include approvedBy if it's a valid UUID
-    if (request.approvedBy) {
-      // Check if it's a UUID format
-      const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-      if (uuidRegex.test(request.approvedBy)) {
-        backendPayload.approvedBy = request.approvedBy;
-      }
-      // If not UUID, don't include it (approvedBy is optional)
-    }
-
-    if (import.meta.env.DEV) {
-      console.log('Create Expense - Frontend Request:', request);
-      console.log('Create Expense - Backend Payload:', backendPayload);
-    }
-
     const response = await apiClient.post<Expense>(
       API_ENDPOINTS.admin.expenses,
-      backendPayload
+      request
     );
 
     if (import.meta.env.DEV) {
-      console.log('Create Expense API Response:', { request, backendPayload, response });
+      console.log('Create Expense API Response:', { request, response });
     }
 
     if (!response.data) {
@@ -1599,64 +1327,6 @@ class AdminService {
     return response;
   }
 
-  // ==================== REPORT DOWNLOAD APIs ====================
-
-  /**
-   * Download Fee Report (CSV or JSON)
-   */
-  async downloadFeeReport(format: 'csv' | 'json' = 'json'): Promise<void> {
-    const url = `${API_ENDPOINTS.admin.fees.studentFees.reportDownload(format)}`;
-    const response = await fetch(getApiUrl(url), {
-      method: 'GET',
-      headers: {
-        'Authorization': `Bearer ${tokenStorage.getAccessToken()}`,
-        'x-school-uuid': schoolStorage.getSchoolId() || '',
-      },
-    });
-
-    if (!response.ok) {
-      throw new Error('Failed to download fee report');
-    }
-
-    const blob = await response.blob();
-    const downloadUrl = window.URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = downloadUrl;
-    link.download = `fee-report-${new Date().toISOString().split('T')[0]}.${format}`;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    window.URL.revokeObjectURL(downloadUrl);
-  }
-
-  /**
-   * Download Expense Report (CSV or JSON)
-   */
-  async downloadExpenseReport(format: 'csv' | 'json' = 'json'): Promise<void> {
-    const url = `${API_ENDPOINTS.admin.fees.expenses.reportDownload(format)}`;
-    const response = await fetch(getApiUrl(url), {
-      method: 'GET',
-      headers: {
-        'Authorization': `Bearer ${tokenStorage.getAccessToken()}`,
-        'x-school-uuid': schoolStorage.getSchoolId() || '',
-      },
-    });
-
-    if (!response.ok) {
-      throw new Error('Failed to download expense report');
-    }
-
-    const blob = await response.blob();
-    const downloadUrl = window.URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = downloadUrl;
-    link.download = `expense-report-${new Date().toISOString().split('T')[0]}.${format}`;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    window.URL.revokeObjectURL(downloadUrl);
-  }
-
   // ==================== COMMUNICATION APIs ====================
 
   /**
@@ -1819,73 +1489,17 @@ class AdminService {
     if (params?.limit) queryParams.append('limit', params.limit.toString());
 
     const endpoint = `${API_ENDPOINTS.admin.communication.messages.base}${queryParams.toString() ? `?${queryParams.toString()}` : ''}`;
-    
-    // Use apiClient.get but we need to access raw response to preserve meta
-    // apiClient.get extracts data.data, losing meta, so we'll make a direct fetch
-    const url = getApiUrl(endpoint);
-    const token = tokenStorage.getAccessToken();
-    const schoolId = schoolStorage.getSchoolId();
-    
-    const headers: HeadersInit = {
-      'Content-Type': 'application/json',
-      'Accept': 'application/json',
-    };
-    
-    if (token) {
-      headers['Authorization'] = `Bearer ${token}`;
-    }
-    if (schoolId) {
-      headers['X-School-UUID'] = schoolId;
-    }
-    
-    try {
-      const fetchResponse = await fetch(url, { headers });
-      
-      if (!fetchResponse.ok) {
-        if (fetchResponse.status === 401) {
-          throw new Error('Unauthorized - Please login again');
-        }
-        const errorData = await fetchResponse.json().catch(() => ({}));
-        throw new Error(errorData.message || `HTTP error! status: ${fetchResponse.status}`);
-      }
-      
-      const rawResponse = await fetchResponse.json();
-    
+    const response = await apiClient.get<MessagesResponse>(endpoint);
+
     if (import.meta.env.DEV) {
-      console.log('Get Messages Raw API Response:', { params, rawResponse });
+      console.log('Get Messages API Response:', { params, response });
     }
 
-    // Backend returns { data: [...], meta: {...} }
-    if (!rawResponse || !rawResponse.data || !Array.isArray(rawResponse.data)) {
+    if (!response.data) {
       return { messages: [] };
     }
-    
-    // Transform messages: backend has sender/recipient objects, frontend expects senderName/recipientName strings
-    const transformedMessages = rawResponse.data.map((msg: any) => ({
-      id: msg.id,
-      schoolId: msg.schoolId,
-      senderId: msg.senderId,
-      senderName: msg.sender ? `${msg.sender.firstName || ''} ${msg.sender.lastName || ''}`.trim() : undefined,
-      recipientId: msg.recipientId,
-      recipientName: msg.recipient ? `${msg.recipient.firstName || ''} ${msg.recipient.lastName || ''}`.trim() : undefined,
-      subject: msg.subject,
-      content: msg.content,
-      priority: msg.priority,
-      isRead: msg.readAt !== null && msg.readAt !== undefined, // If readAt exists, message is read
-      createdAt: msg.createdAt,
-      updatedAt: msg.updatedAt,
-    }));
 
-      return {
-        messages: transformedMessages,
-        total: rawResponse.meta?.total || transformedMessages.length,
-        page: rawResponse.meta?.page || 1,
-        limit: rawResponse.meta?.limit || transformedMessages.length,
-      };
-    } catch (error: any) {
-      console.error('Error fetching messages:', error);
-      throw error;
-    }
+    return response.data;
   }
 
   /**
@@ -2106,26 +1720,17 @@ class AdminService {
     if (params.sectionId) queryParams.append('sectionId', params.sectionId);
 
     const endpoint = `${API_ENDPOINTS.admin.communication.recipients}?${queryParams.toString()}`;
-    const response = await apiClient.get<any>(endpoint);
+    const response = await apiClient.get<RecipientsResponse>(endpoint);
 
     if (import.meta.env.DEV) {
       console.log('Get Recipients API Response:', { params, response });
     }
 
-    if (!response.data || !response.data.recipients) {
+    if (!response.data) {
       return { recipients: [] };
     }
 
-    // Backend returns userId, frontend expects id - transform the response
-    const transformedRecipients = response.data.recipients.map((r: any) => ({
-      id: r.userId || r.id, // Map userId to id
-      name: r.name,
-      email: r.email,
-      phone: r.phone,
-      role: r.role,
-    }));
-
-    return { recipients: transformedRecipients };
+    return response.data;
   }
 
   /**
@@ -2159,151 +1764,20 @@ class AdminService {
    * Create Examination
    */
   async createExamination(request: CreateExaminationRequest): Promise<ApiResponse<Examination>> {
-    // Clean up the request - remove undefined values and ensure proper formatting
-    const cleanedRequest: any = {
-      schoolId: request.schoolId,
-      examName: request.examName,
-      examType: request.examType,
-      academicYearId: request.academicYearId,
-      createdBy: request.createdBy,
-    };
-    
-    // Add optional fields only if they have values
-    if (request.description) {
-      cleanedRequest.description = request.description;
-    }
-    if (request.startDate) {
-      cleanedRequest.startDate = request.startDate;
-    }
-    if (request.endDate) {
-      cleanedRequest.endDate = request.endDate;
-    }
-    if (request.durationMinutes) {
-      cleanedRequest.durationMinutes = request.durationMinutes;
-    }
-    
-    // Clean examClasses - remove undefined sectionName
-    if (request.examClasses && request.examClasses.length > 0) {
-      cleanedRequest.examClasses = request.examClasses.map(ec => {
-        const cleaned: any = { classId: ec.classId };
-        if (ec.sectionName) {
-          cleaned.sectionName = ec.sectionName;
-        }
-        return cleaned;
-      });
-    }
-    
-    // Clean examSubjects
-    if (request.examSubjects && request.examSubjects.length > 0) {
-      cleanedRequest.examSubjects = request.examSubjects.map(es => {
-        const cleaned: any = {
-          subjectName: es.subjectName,
-          totalMarks: es.totalMarks,
-        };
-        if (es.passingMarks !== undefined) {
-          cleaned.passingMarks = es.passingMarks;
-        }
-        if (es.weightage !== undefined) {
-          cleaned.weightage = es.weightage;
-        }
-        return cleaned;
-      });
-    }
-    
-    // Clean examSchedules - ensure proper format
-    if (request.examSchedules && request.examSchedules.length > 0) {
-      cleanedRequest.examSchedules = request.examSchedules.map(schedule => {
-        // Validate and clean each field
-        const cleaned: any = {
-          classId: schedule.classId?.trim(),
-          subjectName: schedule.subjectName?.trim(),
-          examDate: schedule.examDate?.trim(),
-          startTime: schedule.startTime?.trim(),
-          endTime: schedule.endTime?.trim(),
-        };
-        
-        // Validate required fields
-        if (!cleaned.classId) {
-          throw new Error('Class ID is required for exam schedule');
-        }
-        if (!cleaned.subjectName) {
-          throw new Error('Subject name is required for exam schedule');
-        }
-        if (!cleaned.examDate) {
-          throw new Error('Exam date is required for exam schedule');
-        }
-        if (!cleaned.startTime) {
-          throw new Error('Start time is required for exam schedule');
-        }
-        if (!cleaned.endTime) {
-          throw new Error('End time is required for exam schedule');
-        }
-        
-        // Validate time format (should be HH:mm)
-        const timeRegex = /^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$/;
-        if (!timeRegex.test(cleaned.startTime)) {
-          throw new Error(`Invalid start time format: ${cleaned.startTime}. Expected HH:mm format (e.g., "10:00")`);
-        }
-        if (!timeRegex.test(cleaned.endTime)) {
-          throw new Error(`Invalid end time format: ${cleaned.endTime}. Expected HH:mm format (e.g., "11:00")`);
-        }
-        
-        // Validate date format (should be YYYY-MM-DD)
-        const dateRegex = /^\d{4}-\d{2}-\d{2}$/;
-        if (!dateRegex.test(cleaned.examDate)) {
-          throw new Error(`Invalid exam date format: ${cleaned.examDate}. Expected YYYY-MM-DD format`);
-        }
-        
-        // Only include sectionName if it has a value
-        if (schedule.sectionName && schedule.sectionName.trim()) {
-          cleaned.sectionName = schedule.sectionName.trim();
-        }
-        // Only include roomNumber if it has a value
-        if (schedule.roomNumber && schedule.roomNumber.trim()) {
-          cleaned.roomNumber = schedule.roomNumber.trim();
-        }
-        
-        return cleaned;
-      });
-    }
+    const response = await apiClient.post<Examination>(
+      API_ENDPOINTS.admin.examinations.base,
+      request
+    );
 
     if (import.meta.env.DEV) {
-      console.log('Create Examination Request (cleaned):', cleanedRequest);
+      console.log('Create Examination API Response:', { request, response });
     }
 
-    try {
-      const response = await apiClient.post<Examination>(
-        API_ENDPOINTS.admin.examinations.base,
-        cleanedRequest
-      );
-
-      if (import.meta.env.DEV) {
-        console.log('Create Examination API Response:', { request: cleanedRequest, response });
-      }
-
-      if (!response.data) {
-        throw new Error('Invalid response from server: No data received');
-      }
-
-      return response;
-    } catch (error: any) {
-      // Enhanced error logging for debugging
-      if (import.meta.env.DEV) {
-        console.error('Create Examination API Error:', {
-          error,
-          errorType: error?.constructor?.name,
-          message: error?.message,
-          statusCode: error?.statusCode,
-          code: error?.code,
-          details: error?.details,
-          originalData: error?.details?.originalData,
-          response: error?.response,
-          data: error?.data,
-          request: cleanedRequest,
-        });
-      }
-      throw error;
+    if (!response.data) {
+      throw new Error('Invalid response from server: No data received');
     }
+
+    return response;
   }
 
   /**
@@ -2696,29 +2170,17 @@ class AdminService {
     if (status) queryParams.append('status', status);
 
     const endpoint = `${API_ENDPOINTS.admin.transport.routes.base}${queryParams.toString() ? `?${queryParams.toString()}` : ''}`;
-    const response = await apiClient.get<any>(endpoint);
+    const response = await apiClient.get<TransportRoutesResponse>(endpoint);
 
     if (import.meta.env.DEV) {
       console.log('Get Transport Routes API Response:', response);
     }
 
-    // Handle both array and object responses
     if (!response.data) {
       return { routes: [] };
     }
 
-    // If response is an array, wrap it in routes property
-    if (Array.isArray(response.data)) {
-      return { routes: response.data };
-    }
-
-    // If response already has routes property, return as is
-    if (response.data.routes) {
-      return response.data;
-    }
-
-    // Fallback: return empty routes
-    return { routes: [] };
+    return response.data;
   }
 
   /**
@@ -2789,7 +2251,7 @@ class AdminService {
    * Get Hostel Buildings
    */
   async getHostelBuildings(): Promise<HostelBuildingsResponse> {
-    const response = await apiClient.get<any>(
+    const response = await apiClient.get<HostelBuildingsResponse>(
       API_ENDPOINTS.admin.hostel.buildings.base
     );
 
@@ -2797,23 +2259,11 @@ class AdminService {
       console.log('Get Hostel Buildings API Response:', response);
     }
 
-    // Handle both array and object responses
     if (!response.data) {
       return { buildings: [] };
     }
 
-    // If response is an array, wrap it in buildings property
-    if (Array.isArray(response.data)) {
-      return { buildings: response.data };
-    }
-
-    // If response already has buildings property, return as is
-    if (response.data.buildings) {
-      return response.data;
-    }
-
-    // Fallback: return empty buildings
-    return { buildings: [] };
+    return response.data;
   }
 
   /**
@@ -2845,29 +2295,17 @@ class AdminService {
     if (status) queryParams.append('status', status);
 
     const endpoint = `${API_ENDPOINTS.admin.hostel.rooms.base}${queryParams.toString() ? `?${queryParams.toString()}` : ''}`;
-    const response = await apiClient.get<any>(endpoint);
+    const response = await apiClient.get<HostelRoomsResponse>(endpoint);
 
     if (import.meta.env.DEV) {
       console.log('Get Hostel Rooms API Response:', response);
     }
 
-    // Handle both array and object responses
     if (!response.data) {
       return { rooms: [] };
     }
 
-    // If response is an array, wrap it in rooms property
-    if (Array.isArray(response.data)) {
-      return { rooms: response.data };
-    }
-
-    // If response already has rooms property, return as is
-    if (response.data.rooms) {
-      return response.data;
-    }
-
-    // Fallback: return empty rooms
-    return { rooms: [] };
+    return response.data;
   }
 
   /**
@@ -3460,164 +2898,6 @@ class AdminService {
 
     if (!response.data) {
       return { transactions: [] };
-    }
-
-    return response.data;
-  }
-
-  /**
-   * Get Student Analytics
-   */
-  async getStudentAnalytics(): Promise<any> {
-    const response = await apiClient.get(API_ENDPOINTS.admin.analytics.students);
-
-    if (import.meta.env.DEV) {
-      console.log('Get Student Analytics API Response:', response);
-    }
-
-    return response.data || {};
-  }
-
-  /**
-   * Get Teacher Analytics
-   */
-  async getTeacherAnalytics(): Promise<any> {
-    const response = await apiClient.get(API_ENDPOINTS.admin.analytics.teachers);
-
-    if (import.meta.env.DEV) {
-      console.log('Get Teacher Analytics API Response:', response);
-    }
-
-    return response.data || {};
-  }
-
-  /**
-   * Get Revenue Trend
-   */
-  async getRevenueTrend(months: number = 6): Promise<any> {
-    const endpoint = `${API_ENDPOINTS.admin.analytics.revenueTrend}?months=${months}`;
-    const response = await apiClient.get(endpoint);
-
-    if (import.meta.env.DEV) {
-      console.log('Get Revenue Trend API Response:', response);
-    }
-
-    return response.data || { data: [], comparison: {} };
-  }
-
-  /**
-   * Get Attendance Trend
-   */
-  async getAttendanceTrend(months: number = 6): Promise<any> {
-    const endpoint = `${API_ENDPOINTS.admin.analytics.attendanceTrend}?months=${months}`;
-    const response = await apiClient.get(endpoint);
-
-    if (import.meta.env.DEV) {
-      console.log('Get Attendance Trend API Response:', response);
-    }
-
-    return response.data || { data: [], comparison: {} };
-  }
-
-  /**
-   * Get Student Growth Trend
-   */
-  async getStudentGrowthTrend(months: number = 6): Promise<any> {
-    const endpoint = `${API_ENDPOINTS.admin.analytics.studentGrowthTrend}?months=${months}`;
-    const response = await apiClient.get(endpoint);
-
-    if (import.meta.env.DEV) {
-      console.log('Get Student Growth Trend API Response:', response);
-    }
-
-    return response.data || { data: [], period: '' };
-  }
-
-  /**
-   * Get Class Attendance Analytics
-   */
-  async getClassAttendanceAnalytics(format: 'bar' | 'line' | 'pie' = 'bar'): Promise<any> {
-    const endpoint = `${API_ENDPOINTS.admin.analytics.classAttendance}?format=${format}`;
-    const response = await apiClient.get(endpoint);
-
-    if (import.meta.env.DEV) {
-      console.log('Get Class Attendance Analytics API Response:', response);
-    }
-
-    return response.data || { data: [] };
-  }
-
-  /**
-   * Get Financial Statements
-   */
-  async getFinancialStatements(): Promise<any> {
-    const response = await apiClient.get(API_ENDPOINTS.admin.analytics.financialStatements);
-
-    if (import.meta.env.DEV) {
-      console.log('Get Financial Statements API Response:', response);
-    }
-
-    return response.data || {};
-  }
-
-  /**
-   * Get System Settings
-   */
-  async getSystemSettings(category?: string): Promise<any> {
-    try {
-      const endpoint = category 
-        ? `${API_ENDPOINTS.admin.settings.systemSettings.base}?category=${category}`
-        : API_ENDPOINTS.admin.settings.systemSettings.base;
-      const response = await apiClient.get(endpoint);
-
-      if (import.meta.env.DEV) {
-        console.log('Get System Settings API Response:', response);
-      }
-
-      // Handle different response structures
-      if (Array.isArray(response.data)) {
-        return response.data;
-      } else if (response.data && Array.isArray(response.data.settings)) {
-        return response.data.settings;
-      } else if (Array.isArray(response)) {
-        return response;
-      }
-      
-      return [];
-    } catch (error: any) {
-      console.error('Error fetching system settings:', error);
-      // Return empty array on error instead of throwing
-      return [];
-    }
-  }
-
-  /**
-   * Create System Setting
-   */
-  async createSystemSetting(request: any): Promise<any> {
-    const response = await apiClient.post(
-      API_ENDPOINTS.admin.settings.systemSettings.base,
-      request
-    );
-
-    if (import.meta.env.DEV) {
-      console.log('Create System Setting API Response:', response);
-    }
-
-    return response.data;
-  }
-
-  /**
-   * Update System Setting
-   */
-  async updateSystemSetting(id: string, request: any): Promise<any> {
-    const response = await apiClient.patch(
-      API_ENDPOINTS.admin.settings.systemSettings.getById(id),
-      request
-    );
-
-    if (import.meta.env.DEV) {
-      console.log('Update System Setting API Response:', response);
     }
 
     return response.data;

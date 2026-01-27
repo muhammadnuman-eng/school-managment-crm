@@ -1,81 +1,20 @@
-import { useState, useEffect } from 'react';
 import { Shield, BookOpen, GraduationCap, ArrowRight, Globe } from 'lucide-react';
 import { Button } from '../ui/button';
 import { Card } from '../ui/card';
 import { UserRole } from './AuthSystem';
-import { adminService } from '../../services';
 
 interface PortalSelectionProps {
   onSelectPortal: (role: UserRole) => void;
 }
 
 export function PortalSelection({ onSelectPortal }: PortalSelectionProps) {
-  const [counts, setCounts] = useState({
-    admins: 0,
-    teachers: 0,
-    students: 0,
-    schools: 0,
-  });
-  const [isLoading, setIsLoading] = useState(true);
-
-  // Fetch counts from API
-  useEffect(() => {
-    const fetchCounts = async () => {
-      try {
-        setIsLoading(true);
-        // Try to fetch dashboard stats (may require auth, so we'll handle errors gracefully)
-        const stats = await adminService.getDashboardStats();
-        
-        setCounts({
-          admins: 0, // Admin count might not be in stats, we'll need to calculate or get separately
-          teachers: stats.teachers?.total || 0,
-          students: stats.students?.total || 0,
-          schools: 0, // School count might not be in stats
-        });
-      } catch (error: any) {
-        // If API fails (e.g., not authenticated), use default values
-        // Silently handle errors - this is expected if user is not authenticated
-        // Ignore browser extension errors (message channel errors)
-        const errorMessage = error?.message || String(error || '');
-        if (!errorMessage.includes('message channel') && !errorMessage.includes('enable_copy')) {
-          // Only log non-extension errors in dev mode
-          if (import.meta.env.DEV) {
-            console.log('Could not fetch portal counts (may require authentication):', error);
-          }
-        }
-        setCounts({
-          admins: 0,
-          teachers: 0,
-          students: 0,
-          schools: 0,
-        });
-      } finally {
-        setIsLoading(false);
-      }
-    };
-
-    fetchCounts().catch(() => {
-      // Silently handle any unhandled promise rejections
-      // This is expected if API requires authentication
-    });
-  }, []);
-
-  // Format number with commas
-  const formatCount = (count: number) => {
-    if (count === 0 && isLoading) return '...';
-    if (count >= 1000) {
-      return `${(count / 1000).toFixed(1)}K`;
-    }
-    return count.toLocaleString();
-  };
-
   const portals = [
     {
       id: 'admin' as UserRole,
       icon: Shield,
       title: 'Administrator Portal',
       description: 'Manage schools, users, and system settings',
-      userCount: `${formatCount(counts.admins)} ${counts.admins === 1 ? 'Admin' : 'Admins'}`,
+      userCount: '24 Admins',
       color: 'blue',
       gradient: 'from-blue-500 to-blue-600',
       hoverBorder: 'hover:border-blue-500',
@@ -87,7 +26,7 @@ export function PortalSelection({ onSelectPortal }: PortalSelectionProps) {
       icon: BookOpen,
       title: 'Teacher Portal',
       description: 'Access classes, attendance, and student records',
-      userCount: `${formatCount(counts.teachers)} ${counts.teachers === 1 ? 'Teacher' : 'Teachers'}`,
+      userCount: '156 Teachers',
       color: 'purple',
       gradient: 'from-purple-500 to-purple-600',
       hoverBorder: 'hover:border-purple-500',
@@ -99,7 +38,7 @@ export function PortalSelection({ onSelectPortal }: PortalSelectionProps) {
       icon: GraduationCap,
       title: 'Student & Parent Portal',
       description: 'View schedules, results, fees, and announcements',
-      userCount: `${formatCount(counts.students)} ${counts.students === 1 ? 'Student' : 'Students'}`,
+      userCount: '1,234 Students',
       color: 'green',
       gradient: 'from-green-500 to-green-600',
       hoverBorder: 'hover:border-green-500',
@@ -147,15 +86,15 @@ export function PortalSelection({ onSelectPortal }: PortalSelectionProps) {
             {/* Stats */}
             <div className="grid grid-cols-3 gap-6 pt-8">
               <div className="text-center">
-                <div className="text-3xl mb-1">{formatCount(counts.schools)}</div>
+                <div className="text-3xl mb-1">24</div>
                 <div className="text-sm text-blue-200">Schools</div>
               </div>
               <div className="text-center">
-                <div className="text-3xl mb-1">{formatCount(counts.teachers)}</div>
+                <div className="text-3xl mb-1">156</div>
                 <div className="text-sm text-blue-200">Teachers</div>
               </div>
               <div className="text-center">
-                <div className="text-3xl mb-1">{formatCount(counts.students)}</div>
+                <div className="text-3xl mb-1">1.2K</div>
                 <div className="text-sm text-blue-200">Students</div>
               </div>
             </div>

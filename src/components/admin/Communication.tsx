@@ -79,33 +79,21 @@ export function Communication() {
   const [editingTemplate, setEditingTemplate] = useState<CommunicationTemplate | null>(null);
 
   // Form states
-  const [messageRecipientType, setMessageRecipientType] = useState<'STUDENT' | 'TEACHER' | 'PARENT' | ''>('');
   const [messageRecipientId, setMessageRecipientId] = useState('');
-  const [messageRecipientSearch, setMessageRecipientSearch] = useState('');
-  const [showRecipientDropdown, setShowRecipientDropdown] = useState(false);
-  const [isLoadingRecipients, setIsLoadingRecipients] = useState(false);
   const [messageSubject, setMessageSubject] = useState('');
   const [messageContent, setMessageContent] = useState('');
-  const [messagePriority, setMessagePriority] = useState<'LOW' | 'NORMAL' | 'HIGH'>('NORMAL');
+  const [messagePriority, setMessagePriority] = useState<'LOW' | 'MEDIUM' | 'HIGH' | 'URGENT'>('MEDIUM');
 
   const [announcementTitle, setAnnouncementTitle] = useState('');
   const [announcementContent, setAnnouncementContent] = useState('');
-  const [announcementCategory, setAnnouncementCategory] = useState<'GENERAL' | 'EVENT' | 'MEETING' | 'HOLIDAY'>('GENERAL');
-  const [announcementPriority, setAnnouncementPriority] = useState<'LOW' | 'NORMAL' | 'HIGH'>('NORMAL');
+  const [announcementCategory, setAnnouncementCategory] = useState<'GENERAL' | 'ACADEMIC' | 'EVENT' | 'EMERGENCY' | 'HOLIDAY'>('GENERAL');
+  const [announcementPriority, setAnnouncementPriority] = useState<'LOW' | 'MEDIUM' | 'HIGH' | 'URGENT'>('MEDIUM');
   const [announcementTargetAudience, setAnnouncementTargetAudience] = useState<'ALL' | 'STUDENTS' | 'TEACHERS' | 'PARENTS' | 'SPECIFIC_CLASS' | 'SPECIFIC_SECTION'>('ALL');
 
   const [templateName, setTemplateName] = useState('');
   const [templateType, setTemplateType] = useState('');
   const [templateSubject, setTemplateSubject] = useState('');
   const [templateContent, setTemplateContent] = useState('');
-
-  // Broadcast form states
-  const [broadcastTitle, setBroadcastTitle] = useState('');
-  const [broadcastMessage, setBroadcastMessage] = useState('');
-  const [broadcastRecipientType, setBroadcastRecipientType] = useState<'STUDENT' | 'TEACHER' | 'PARENT' | ''>('');
-  const [broadcastPriority, setBroadcastPriority] = useState<'LOW' | 'NORMAL' | 'HIGH'>('NORMAL');
-  const [broadcastSubject, setBroadcastSubject] = useState('');
-  const [isLoadingBroadcastRecipients, setIsLoadingBroadcastRecipients] = useState(false);
 
   // Define fetch functions first (before useEffect)
   const fetchSummary = useCallback(async () => {
@@ -121,7 +109,6 @@ export function Communication() {
     setIsLoading(true);
     try {
       const response = await adminService.getMessages();
-      console.log('Fetched messages:', { count: response.messages?.length || 0, messages: response.messages });
       setMessages(response.messages || []);
     } catch (error: any) {
       console.error('Error fetching messages:', error);
@@ -183,9 +170,6 @@ export function Communication() {
       fetchAnnouncements();
     } else if (activeTab === 'templates') {
       fetchTemplates();
-    } else if (activeTab === 'broadcast') {
-      // Refresh messages to show broadcast history
-      fetchMessages();
     }
   }, [activeTab, fetchSummary, fetchMessages, fetchAnnouncements, fetchTemplates]);
 
@@ -202,83 +186,19 @@ export function Communication() {
   }, [activeTab, fetchSummary, fetchMessages]);
 
   const fetchRecipients = async (role: 'STUDENT' | 'TEACHER' | 'PARENT') => {
-    setIsLoadingRecipients(true);
     try {
       const response = await adminService.getRecipients({ role });
-      // Map API response: backend returns 'userId' but frontend expects 'id'
-      const mappedRecipients = (response.recipients || []).map((recipient: any) => ({
-        id: recipient.userId || recipient.id, // Use userId from API or fallback to id
-        name: recipient.name,
-        email: recipient.email,
-        phone: recipient.phone,
-        role: recipient.role,
-      }));
-      setRecipients(mappedRecipients);
-      console.log('Fetched recipients:', { role, count: mappedRecipients.length, recipients: mappedRecipients });
+      setRecipients(response.recipients || []);
     } catch (error: any) {
       console.error('Error fetching recipients:', error);
       toast.error('Failed to load recipients');
       setRecipients([]);
-    } finally {
-      setIsLoadingRecipients(false);
     }
   };
 
   const handleSendMessage = async () => {
-    // Debug logging
-    console.log('Form state before validation:', {
-      messageRecipientType,
-      messageRecipientId,
-      messageRecipientSearch,
-      messageContent: messageContent?.substring(0, 50),
-      messageSubject,
-      recipientsCount: recipients.length,
-      recipients: recipients.map(r => ({ id: r.id, name: r.name }))
-    });
-
-    // Validate recipient type is selected
-    if (!messageRecipientType) {
-      toast.error('Please select recipient type');
-      return;
-    }
-
-    // Check if recipient is selected by ID or by name match
-    let finalRecipientId = messageRecipientId;
-    
-    // If no recipient ID but search text exists, try to find matching recipient
-    if (!finalRecipientId && messageRecipientSearch) {
-      // Try exact match first
-      let matchedRecipient = recipients.find(
-        r => r.name.toLowerCase().trim() === messageRecipientSearch.toLowerCase().trim()
-      );
-      
-      // If no exact match, try partial match (contains)
-      if (!matchedRecipient) {
-        matchedRecipient = recipients.find(
-          r => r.name.toLowerCase().includes(messageRecipientSearch.toLowerCase().trim())
-        );
-      }
-      
-      if (matchedRecipient) {
-        finalRecipientId = matchedRecipient.id;
-        setMessageRecipientId(matchedRecipient.id); // Update state
-        console.log('Matched recipient:', matchedRecipient);
-      }
-    }
-    
-    // Validate recipient and message content
-    if (!finalRecipientId) {
-      console.error('Recipient validation failed:', {
-        messageRecipientId,
-        messageRecipientSearch,
-        recipientsAvailable: recipients.length > 0
-      });
-      toast.error('Please select a recipient from the dropdown');
-      return;
-    }
-
-    if (!messageContent || messageContent.trim() === '') {
-      toast.error('Please enter a message');
+    if (!messageRecipientId || !messageContent) {
+      toast.error('Please select recipient and enter message');
       return;
     }
 
@@ -296,7 +216,7 @@ export function Communication() {
       const request: CreateMessageRequest = {
         schoolId,
         senderId,
-        recipientId: finalRecipientId,
+        recipientId: messageRecipientId,
         subject: messageSubject || undefined,
         content: messageContent,
         priority: messagePriority,
@@ -460,14 +380,10 @@ export function Communication() {
   };
 
   const resetMessageForm = () => {
-    setMessageRecipientType('');
     setMessageRecipientId('');
-    setMessageRecipientSearch('');
     setMessageSubject('');
     setMessageContent('');
-    setMessagePriority('NORMAL');
-    setShowRecipientDropdown(false);
-    setRecipients([]);
+    setMessagePriority('MEDIUM');
   };
 
   const resetAnnouncementForm = () => {
@@ -475,7 +391,7 @@ export function Communication() {
     setAnnouncementTitle('');
     setAnnouncementContent('');
     setAnnouncementCategory('GENERAL');
-    setAnnouncementPriority('NORMAL');
+    setAnnouncementPriority('MEDIUM');
     setAnnouncementTargetAudience('ALL');
   };
 
@@ -485,83 +401,6 @@ export function Communication() {
     setTemplateType('');
     setTemplateSubject('');
     setTemplateContent('');
-  };
-
-  const resetBroadcastForm = () => {
-    setBroadcastTitle('');
-    setBroadcastMessage('');
-    setBroadcastRecipientType('');
-    setBroadcastPriority('NORMAL');
-    setBroadcastSubject('');
-  };
-
-  const handleSendBroadcast = async () => {
-    if (!broadcastMessage || !broadcastRecipientType) {
-      toast.error('Please fill all required fields');
-      return;
-    }
-
-    setIsSubmitting(true);
-    try {
-      const schoolId = schoolStorage.getSchoolId();
-      const currentUser = userStorage.getUser();
-      const senderId = currentUser?.id || currentUser?.uuid || '';
-
-      if (!schoolId || !senderId) {
-        toast.error('Unable to identify school or user');
-        return;
-      }
-
-      // Fetch recipients based on type
-      setIsLoadingBroadcastRecipients(true);
-      const recipientsResponse = await adminService.getRecipients({
-        role: broadcastRecipientType as 'STUDENT' | 'TEACHER' | 'PARENT',
-      });
-      
-      // Filter out null, undefined, or invalid recipient IDs
-      const recipientIds = recipientsResponse.recipients
-        .map(r => r.id)
-        .filter((id): id is string => 
-          id !== null && 
-          id !== undefined && 
-          typeof id === 'string' && 
-          id.trim() !== ''
-        );
-
-      if (recipientIds.length === 0) {
-        toast.error(`No valid ${broadcastRecipientType.toLowerCase()}s found`);
-        setIsSubmitting(false);
-        setIsLoadingBroadcastRecipients(false);
-        return;
-      }
-
-      // Send bulk messages
-      const request: BulkMessageRequest = {
-        schoolId,
-        senderId,
-        recipientIds,
-        subject: broadcastSubject || broadcastTitle || undefined,
-        content: broadcastMessage,
-        priority: broadcastPriority,
-      };
-
-      await adminService.sendBulkMessages(request);
-      toast.success(`Broadcast sent successfully to ${recipientIds.length} ${broadcastRecipientType.toLowerCase()}s!`);
-      setShowBroadcastDialog(false);
-      resetBroadcastForm();
-      await fetchMessages();
-      await fetchSummary();
-    } catch (error: any) {
-      console.error('Error sending broadcast:', error);
-      let errorMessage = 'Failed to send broadcast';
-      if (error instanceof ApiException) {
-        errorMessage = getUserFriendlyError(error);
-      }
-      toast.error(errorMessage);
-    } finally {
-      setIsSubmitting(false);
-      setIsLoadingBroadcastRecipients(false);
-    }
   };
 
   const formatDateTime = (date: string, time?: string) => {
@@ -625,26 +464,8 @@ export function Communication() {
           <div className="absolute inset-0 bg-white/5"></div>
           <div className="relative">
             <p className="text-white/90 text-sm mb-2 font-medium">Broadcasts</p>
-            <h3 className="text-white text-3xl mb-1 tracking-tight">
-              {(() => {
-                // Count broadcasts (bulk messages with multiple recipients)
-                const broadcastGroups = new Map<string, Message[]>();
-                messages.forEach(msg => {
-                  const subjectKey = msg.subject || '';
-                  const contentKey = msg.content.substring(0, 50);
-                  const timeWindow = msg.createdAt 
-                    ? Math.floor(new Date(msg.createdAt).getTime() / 10000)
-                    : 0;
-                  const groupKey = `${msg.senderId}-${subjectKey}-${contentKey}-${timeWindow}`;
-                  if (!broadcastGroups.has(groupKey)) {
-                    broadcastGroups.set(groupKey, []);
-                  }
-                  broadcastGroups.get(groupKey)!.push(msg);
-                });
-                return Array.from(broadcastGroups.values()).filter(group => group.length > 1).length;
-              })()}
-            </h3>
-            <p className="text-white/80 text-sm font-medium">Total sent</p>
+            <h3 className="text-white text-3xl mb-1 tracking-tight">-</h3>
+            <p className="text-white/80 text-sm font-medium">Coming soon</p>
           </div>
         </div>
 
@@ -742,7 +563,7 @@ export function Communication() {
                                 {message.content.substring(0, 100)}...
                               </p>
                             </div>
-                            {message.priority === 'HIGH' && (
+                            {message.priority === 'HIGH' || message.priority === 'URGENT' && (
                               <Badge className="bg-red-100 text-red-700 border-red-200 text-xs">
                                 {message.priority} Priority
                               </Badge>
@@ -886,7 +707,7 @@ export function Communication() {
                                     setAnnouncementTitle(announcement.title);
                                     setAnnouncementContent(announcement.content);
                                     setAnnouncementCategory(announcement.category);
-                                    setAnnouncementPriority(announcement.priority || 'NORMAL');
+                                    setAnnouncementPriority(announcement.priority || 'MEDIUM');
                                     setAnnouncementTargetAudience(announcement.targetAudience);
                                     setShowAnnouncementDialog(true);
                                   }}>
@@ -949,123 +770,11 @@ export function Communication() {
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {isLoading ? (
-                        <TableRow>
-                          <TableCell colSpan={8} className="text-center py-12 text-gray-500 dark:text-gray-400">
-                            Loading broadcasts...
-                          </TableCell>
-                        </TableRow>
-                      ) : (() => {
-                        // Group messages into broadcasts (bulk messages)
-                        // Bulk messages are identified by: same sender, same subject/content, created within 10 seconds
-                        const broadcastGroups = new Map<string, Message[]>();
-                        
-                        messages.forEach(msg => {
-                          // Create a unique key for bulk messages: senderId + subject + content + timeWindow
-                          const subjectKey = msg.subject || '';
-                          const contentKey = msg.content.substring(0, 50); // First 50 chars for grouping
-                          const timeWindow = msg.createdAt 
-                            ? Math.floor(new Date(msg.createdAt).getTime() / 10000) // 10 second window
-                            : 0;
-                          const groupKey = `${msg.senderId}-${subjectKey}-${contentKey}-${timeWindow}`;
-                          
-                          if (!broadcastGroups.has(groupKey)) {
-                            broadcastGroups.set(groupKey, []);
-                          }
-                          broadcastGroups.get(groupKey)!.push(msg);
-                        });
-                        
-                        // Filter to only show groups with multiple recipients (actual broadcasts)
-                        const broadcasts = Array.from(broadcastGroups.values())
-                          .filter(group => group.length > 1)
-                          .sort((a, b) => {
-                            // Sort by most recent
-                            const timeA = a[0]?.createdAt ? new Date(a[0].createdAt).getTime() : 0;
-                            const timeB = b[0]?.createdAt ? new Date(b[0].createdAt).getTime() : 0;
-                            return timeB - timeA;
-                          })
-                          .slice(0, 20); // Show latest 20 broadcasts
-                        
-                        if (broadcasts.length === 0) {
-                          return (
-                            <TableRow>
-                              <TableCell colSpan={8} className="text-center py-12 text-gray-500 dark:text-gray-400">
-                                No broadcasts sent yet. Create your first broadcast to get started.
-                              </TableCell>
-                            </TableRow>
-                          );
-                        }
-                        
-                        return broadcasts.map((broadcastGroup, index) => {
-                          const firstMessage = broadcastGroup[0];
-                          const readCount = broadcastGroup.filter(m => m.isRead).length;
-                          const totalRecipients = broadcastGroup.length;
-                          const createdAt = firstMessage.createdAt 
-                            ? new Date(firstMessage.createdAt).toLocaleString('en-US', {
-                                year: 'numeric',
-                                month: 'short',
-                                day: 'numeric',
-                                hour: '2-digit',
-                                minute: '2-digit'
-                              })
-                            : 'N/A';
-                          
-                          return (
-                            <TableRow key={`broadcast-${index}-${firstMessage.id}`} className="hover:bg-gray-50 dark:hover:bg-gray-800">
-                              <TableCell className="font-medium">
-                                {firstMessage.subject || 'No Subject'}
-                              </TableCell>
-                              <TableCell>
-                                <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-200">
-                                  {totalRecipients} {totalRecipients === 1 ? 'recipient' : 'recipients'}
-                                </Badge>
-                              </TableCell>
-                              <TableCell className="text-gray-700 dark:text-gray-300">Message</TableCell>
-                              <TableCell className="text-gray-700 dark:text-gray-300">{createdAt}</TableCell>
-                              <TableCell>
-                                <div className="text-sm text-gray-700 dark:text-gray-300">
-                                  {readCount}/{totalRecipients}
-                                </div>
-                              </TableCell>
-                              <TableCell className="text-gray-700 dark:text-gray-300">
-                                {firstMessage.senderName || 'Admin'}
-                              </TableCell>
-                              <TableCell>
-                                <Badge 
-                                  variant={readCount === totalRecipients ? 'default' : 'secondary'}
-                                  className={readCount === totalRecipients 
-                                    ? 'bg-green-100 text-green-700 border-green-200' 
-                                    : 'bg-yellow-100 text-yellow-700 border-yellow-200'
-                                  }
-                                >
-                                  {readCount === totalRecipients ? 'Delivered' : 'Pending'}
-                                </Badge>
-                              </TableCell>
-                              <TableCell className="text-right">
-                                <DropdownMenu>
-                                  <DropdownMenuTrigger asChild>
-                                    <Button variant="ghost" size="icon">
-                                      <MoreVertical className="w-4 h-4" />
-                                    </Button>
-                                  </DropdownMenuTrigger>
-                                  <DropdownMenuContent align="end">
-                                    <DropdownMenuItem
-                                      className="text-red-600"
-                                      onClick={() => {
-                                        // Delete all messages in this broadcast
-                                        broadcastGroup.forEach(msg => handleDeleteMessage(msg.id));
-                                      }}
-                                    >
-                                      <Trash2 className="w-4 h-4 mr-2" />
-                                      Delete Broadcast
-                                    </DropdownMenuItem>
-                                  </DropdownMenuContent>
-                                </DropdownMenu>
-                              </TableCell>
-                            </TableRow>
-                          );
-                        });
-                      })()}
+                      <TableRow>
+                        <TableCell colSpan={8} className="text-center py-12 text-gray-500 dark:text-gray-400">
+                          Bulk messaging feature coming soon. Use individual messages or announcements for now.
+                        </TableCell>
+                      </TableRow>
                     </TableBody>
                   </Table>
                 </div>
@@ -1163,16 +872,7 @@ export function Communication() {
       </Tabs>
 
       {/* Compose Message Dialog */}
-      <Dialog 
-        open={showComposeDialog} 
-        onOpenChange={(open) => {
-          setShowComposeDialog(open);
-          if (!open) {
-            // Reset form when dialog closes
-            resetMessageForm();
-          }
-        }}
-      >
+      <Dialog open={showComposeDialog} onOpenChange={setShowComposeDialog}>
         <DialogContent className="max-w-3xl">
           <DialogHeader>
             <DialogTitle>Compose Message</DialogTitle>
@@ -1184,18 +884,11 @@ export function Communication() {
                 <div className="space-y-2">
                   <Label>Recipient Type</Label>
                   <Select
-                    value={messageRecipientType}
                     onValueChange={(role) => {
-                      const selectedRole = role as 'STUDENT' | 'TEACHER' | 'PARENT';
-                      setMessageRecipientType(selectedRole);
                       setMessageRecipientId(''); // Reset selected recipient
-                      setMessageRecipientSearch(''); // Reset search query
                       setRecipients([]); // Clear recipients list
-                      setShowRecipientDropdown(false); // Hide dropdown
-                      // Fetch recipients for the selected role
-                      if (selectedRole) {
-                        console.log('Fetching recipients for role:', selectedRole);
-                        fetchRecipients(selectedRole);
+                      if (role && role !== 'all') {
+                        fetchRecipients(role as 'STUDENT' | 'TEACHER' | 'PARENT');
                       }
                     }}
                   >
@@ -1213,105 +906,35 @@ export function Communication() {
                 <div className="space-y-2">
                   <Label>Select Recipient</Label>
                   <div className="relative">
-                    <Input
-                      placeholder={isLoadingRecipients ? "Loading recipients..." : messageRecipientType ? "Choose recipient" : "Select recipient type first"}
-                      value={messageRecipientSearch}
-                      disabled={!messageRecipientType || isLoadingRecipients}
-                      onChange={(e) => {
-                        const searchValue = e.target.value;
-                        setMessageRecipientSearch(searchValue);
-                        setShowRecipientDropdown(true);
-                        
-                        // Auto-match recipient if exact or partial name match
-                        if (searchValue) {
-                          const trimmedSearch = searchValue.trim().toLowerCase();
-                          // Try exact match first
-                          let matchedRecipient = recipients.find(
-                            r => r.name.toLowerCase().trim() === trimmedSearch
-                          );
-                          
-                          // If no exact match, try partial match (contains)
-                          if (!matchedRecipient) {
-                            matchedRecipient = recipients.find(
-                              r => r.name.toLowerCase().includes(trimmedSearch)
-                            );
-                          }
-                          
-                          if (matchedRecipient) {
-                            setMessageRecipientId(matchedRecipient.id);
-                            console.log('Auto-matched recipient while typing:', matchedRecipient);
-                          } else {
-                            // Don't clear ID immediately - wait for blur to do final matching
-                            // This allows user to type without losing selection
-                          }
-                        } else {
-                          setMessageRecipientId('');
-                        }
-                      }}
-                      onFocus={() => {
-                        if (recipients.length > 0) {
-                          setShowRecipientDropdown(true);
-                        }
-                      }}
-                      onBlur={(e) => {
-                        // Delay hiding dropdown to allow click on items
-                        setTimeout(() => {
-                          setShowRecipientDropdown(false);
-                          // On blur, try to match the typed text with a recipient
-                          const searchValue = e.target.value?.trim();
-                          if (searchValue) {
-                            // Try exact match first
-                            let matchedRecipient = recipients.find(
-                              r => r.name.toLowerCase().trim() === searchValue.toLowerCase()
-                            );
-                            
-                            // If no exact match, try partial match
-                            if (!matchedRecipient) {
-                              matchedRecipient = recipients.find(
-                                r => r.name.toLowerCase().includes(searchValue.toLowerCase())
-                              );
-                            }
-                            
-                            if (matchedRecipient) {
-                              setMessageRecipientId(matchedRecipient.id);
-                              setMessageRecipientSearch(matchedRecipient.name);
-                              console.log('Auto-matched recipient on blur:', matchedRecipient);
-                            } else if (!messageRecipientId) {
-                              // If no match found and no ID set, clear the search
-                              setMessageRecipientSearch('');
-                            }
-                          }
-                        }, 300);
-                      }}
-                      onKeyDown={(e) => {
-                        // Allow Enter key to select first matching recipient
-                        if (e.key === 'Enter' && showRecipientDropdown && recipients.length > 0) {
-                          e.preventDefault();
-                          const filtered = recipients.filter((recipient) =>
-                            messageRecipientSearch
-                              ? recipient.name.toLowerCase().includes(messageRecipientSearch.toLowerCase())
-                              : true
-                          );
-                          if (filtered.length > 0) {
-                            const firstMatch = filtered[0];
-                            setMessageRecipientId(firstMatch.id);
-                            setMessageRecipientSearch(firstMatch.name);
-                            setShowRecipientDropdown(false);
-                          }
-                        }
-                      }}
-                      className="pr-10"
-                    />
-                    
+                    <Select
+                      value={messageRecipientId}
+                      onValueChange={setMessageRecipientId}
+                    >
+                      <SelectTrigger className="pr-10">
+                        <SelectValue placeholder="Choose recipient" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {recipients.length === 0 ? (
+                          <div className="py-6 text-center text-sm text-gray-500">
+                            {isLoading ? 'Loading recipients...' : 'No recipients available'}
+                          </div>
+                        ) : (
+                          recipients.map((recipient) => (
+                            <SelectItem key={recipient.id} value={recipient.id}>
+                              {recipient.name}
+                            </SelectItem>
+                          ))
+                        )}
+                      </SelectContent>
+                    </Select>
+
                     {/* Clear Button */}
-                    {(messageRecipientId || messageRecipientSearch) && (
+                    {messageRecipientId && (
                       <button
                         type="button"
                         onClick={(e) => {
                           e.stopPropagation();
                           setMessageRecipientId('');
-                          setMessageRecipientSearch('');
-                          setShowRecipientDropdown(false);
                         }}
                         className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 focus:outline-none z-10"
                         aria-label="Clear recipient"
@@ -1321,52 +944,7 @@ export function Communication() {
                         </svg>
                       </button>
                     )}
-
-                    {/* Dropdown List */}
-                    {showRecipientDropdown && recipients.length > 0 && (
-                      <div className="absolute z-50 w-full mt-1 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-md shadow-lg max-h-60 overflow-auto">
-                        {recipients
-                          .filter((recipient) =>
-                            messageRecipientSearch
-                              ? recipient.name.toLowerCase().includes(messageRecipientSearch.toLowerCase())
-                              : true
-                          )
-                          .map((recipient) => (
-                            <div
-                              key={recipient.id}
-                              onMouseDown={(e) => {
-                                e.preventDefault(); // Prevent input blur
-                                setMessageRecipientId(recipient.id);
-                                setMessageRecipientSearch(recipient.name);
-                                setShowRecipientDropdown(false);
-                              }}
-                              className={`px-4 py-2 cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-700 ${
-                                messageRecipientId === recipient.id ? 'bg-blue-50 dark:bg-blue-900/20' : ''
-                              }`}
-                            >
-                              <div className="text-sm text-gray-900 dark:text-white">{recipient.name}</div>
-                              {recipient.email && (
-                                <div className="text-xs text-gray-500 dark:text-gray-400">{recipient.email}</div>
-                              )}
-                            </div>
-                          ))}
-                        {recipients.filter((recipient) =>
-                          messageRecipientSearch
-                            ? recipient.name.toLowerCase().includes(messageRecipientSearch.toLowerCase())
-                            : true
-                        ).length === 0 && (
-                          <div className="px-4 py-2 text-sm text-gray-500 dark:text-gray-400">
-                            No recipients found
-                          </div>
-                        )}
-                      </div>
-                    )}
                   </div>
-                  {messageRecipientId && (
-                    <p className="text-xs text-gray-500 dark:text-gray-400">
-                      Selected: {recipients.find(r => r.id === messageRecipientId)?.name || 'Unknown'}
-                    </p>
-                  )}
                 </div>
               </div>
 
@@ -1397,8 +975,9 @@ export function Communication() {
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="LOW">Low</SelectItem>
-                    <SelectItem value="NORMAL">Normal</SelectItem>
+                    <SelectItem value="MEDIUM">Medium</SelectItem>
                     <SelectItem value="HIGH">High</SelectItem>
+                    <SelectItem value="URGENT">Urgent</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
@@ -1458,8 +1037,9 @@ export function Communication() {
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="GENERAL">General</SelectItem>
+                      <SelectItem value="ACADEMIC">Academic</SelectItem>
                       <SelectItem value="EVENT">Event</SelectItem>
-                      <SelectItem value="MEETING">Meeting</SelectItem>
+                      <SelectItem value="EMERGENCY">Emergency</SelectItem>
                       <SelectItem value="HOLIDAY">Holiday</SelectItem>
                     </SelectContent>
                   </Select>
@@ -1487,8 +1067,9 @@ export function Communication() {
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="LOW">Low</SelectItem>
-                    <SelectItem value="NORMAL">Normal</SelectItem>
+                    <SelectItem value="MEDIUM">Medium</SelectItem>
                     <SelectItem value="HIGH">High</SelectItem>
+                    <SelectItem value="URGENT">Urgent</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
@@ -1521,95 +1102,76 @@ export function Communication() {
           <ScrollArea className="max-h-[60vh]">
             <div className="space-y-4 py-4 pr-4">
               <div className="space-y-2">
-                <Label htmlFor="bc-title">Broadcast Title (Optional)</Label>
-                <Input 
-                  id="bc-title" 
-                  placeholder="Enter broadcast title" 
-                  value={broadcastTitle}
-                  onChange={(e) => setBroadcastTitle(e.target.value)}
-                />
+                <Label htmlFor="bc-title">Broadcast Title</Label>
+                <Input id="bc-title" placeholder="Enter broadcast title" />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="bc-subject">Subject (Optional)</Label>
-                <Input 
-                  id="bc-subject" 
-                  placeholder="Enter subject" 
-                  value={broadcastSubject}
-                  onChange={(e) => setBroadcastSubject(e.target.value)}
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="bc-message">Message *</Label>
-                <Textarea 
-                  id="bc-message" 
-                  placeholder="Write your message..." 
-                  rows={6}
-                  value={broadcastMessage}
-                  onChange={(e) => setBroadcastMessage(e.target.value)}
-                />
+                <Label htmlFor="bc-message">Message</Label>
+                <Textarea id="bc-message" placeholder="Write your message..." rows={6} />
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
-                  <Label htmlFor="bc-recipients">Recipients *</Label>
-                  <Select 
-                    value={broadcastRecipientType} 
-                    onValueChange={(val) => setBroadcastRecipientType(val as any)}
-                  >
+                  <Label htmlFor="bc-recipients">Recipients</Label>
+                  <Select>
                     <SelectTrigger>
                       <SelectValue placeholder="Select recipients" />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="STUDENT">All Students</SelectItem>
-                      <SelectItem value="TEACHER">All Teachers</SelectItem>
-                      <SelectItem value="PARENT">All Parents</SelectItem>
+                      <SelectItem value="all-parents">All Parents</SelectItem>
+                      <SelectItem value="all-students">All Students</SelectItem>
+                      <SelectItem value="all-teachers">All Teachers</SelectItem>
+                      <SelectItem value="grade-10">Grade 10 Students</SelectItem>
+                      <SelectItem value="grade-11">Grade 11 Students</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="bc-priority">Priority</Label>
-                  <Select 
-                    value={broadcastPriority} 
-                    onValueChange={(val) => setBroadcastPriority(val as any)}
-                  >
+                  <Label htmlFor="bc-channel">Channel</Label>
+                  <Select>
                     <SelectTrigger>
-                      <SelectValue placeholder="Select priority" />
+                      <SelectValue placeholder="Select channel" />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="LOW">Low</SelectItem>
-                      <SelectItem value="NORMAL">Normal</SelectItem>
-                      <SelectItem value="HIGH">High</SelectItem>
+                      <SelectItem value="email">Email</SelectItem>
+                      <SelectItem value="sms">SMS</SelectItem>
+                      <SelectItem value="both">Email + SMS</SelectItem>
                     </SelectContent>
                   </Select>
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label htmlFor="bc-date">Schedule Date</Label>
+                  <Input id="bc-date" type="date" />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="bc-time">Schedule Time</Label>
+                  <Input id="bc-time" type="time" />
                 </div>
               </div>
             </div>
           </ScrollArea>
           <DialogFooter>
-            <Button 
-              variant="outline" 
+            <Button variant="outline" onClick={() => setShowBroadcastDialog(false)}>Cancel</Button>
+            <Button
+              variant="outline"
               onClick={() => {
+                toast.success('Broadcast scheduled successfully!');
                 setShowBroadcastDialog(false);
-                resetBroadcastForm();
               }}
             >
-              Cancel
+              <Clock className="w-4 h-4 mr-2" />
+              Schedule
             </Button>
             <Button
               className="bg-gradient-to-r from-green-500 to-emerald-600 hover:from-green-600 hover:to-emerald-700"
-              onClick={handleSendBroadcast}
-              disabled={isSubmitting || isLoadingBroadcastRecipients}
+              onClick={() => {
+                toast.success('Broadcast sent successfully!');
+                setShowBroadcastDialog(false);
+              }}
             >
-              {isSubmitting || isLoadingBroadcastRecipients ? (
-                <>
-                  <Clock className="w-4 h-4 mr-2 animate-spin" />
-                  Sending...
-                </>
-              ) : (
-                <>
-                  <Send className="w-4 h-4 mr-2" />
-                  Send Now
-                </>
-              )}
+              <Send className="w-4 h-4 mr-2" />
+              Send Now
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -1640,12 +1202,8 @@ export function Communication() {
                     <SelectValue placeholder="Select type" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="FEE_REMINDER">Fee Reminder</SelectItem>
-                    <SelectItem value="ATTENDANCE_ALERT">Attendance Alert</SelectItem>
-                    <SelectItem value="EXAM_SCHEDULE">Exam Schedule</SelectItem>
-                    <SelectItem value="PARENT_MEETING">Parent Meeting</SelectItem>
-                    <SelectItem value="HOLIDAY_NOTICE">Holiday Notice</SelectItem>
-                    <SelectItem value="CUSTOM">Custom</SelectItem>
+                    <SelectItem value="EMAIL">Email</SelectItem>
+                    <SelectItem value="SMS">SMS</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
