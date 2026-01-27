@@ -106,6 +106,10 @@ export interface InventoryItem {
   schoolId: string;
   categoryId: string;
   categoryName?: string;
+  category?: {
+    id: string;
+    categoryName: string;
+  };
   itemName: string;
   description?: string;
   unitOfMeasurement: string;
@@ -115,6 +119,10 @@ export interface InventoryItem {
   purchasePrice?: number;
   supplierId?: string;
   supplierName?: string;
+  supplier?: {
+    id: string;
+    supplierName: string;
+  };
   status?: ItemStatus;
   createdAt?: string;
   updatedAt?: string;
@@ -223,11 +231,12 @@ export interface InventoryTransactionsResponse {
 export interface InventoryOverview {
   totalItems: number;
   totalCategories: number;
-  totalSuppliers: number;
-  totalValue: number;
+  totalSuppliers?: number;
+  totalValue?: number;
+  inStockItems?: number;
   lowStockItems: number;
   outOfStockItems: number;
-  recentTransactions: number;
+  recentTransactions?: number;
 }
 
 

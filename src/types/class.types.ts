@@ -14,6 +14,15 @@ export interface CreateSectionRequest {
 }
 
 /**
+ * Custom Subject Request
+ */
+export interface CustomSubjectRequest {
+  subjectName: string;
+  subjectCode?: string;
+  description?: string;
+}
+
+/**
  * Add Class Request
  */
 export interface AddClassRequest {
@@ -23,7 +32,8 @@ export interface AddClassRequest {
   academicYearId?: string; // UUID of academic year (if available, optional)
   academicYearName?: string; // Name of academic year (alternative to academicYear)
   sections: CreateSectionRequest[];
-  subjectIds?: string[];
+  subjectIds?: string[]; // Valid UUIDs only
+  customSubjects?: CustomSubjectRequest[]; // Custom subjects with names
   schoolId?: string; // Will be added from header, but can be included in body if needed
 }
 
@@ -66,7 +76,8 @@ export interface UpdateClassRequest {
   academicYearId?: string; // UUID of academic year (optional)
   academicYearName?: string; // Name of academic year (alternative to academicYear)
   sections?: CreateSectionRequest[];
-  subjectIds?: string[];
+  subjectIds?: string[]; // Valid UUIDs only
+  customSubjects?: CustomSubjectRequest[]; // Custom subjects with names
 }
 
 /**

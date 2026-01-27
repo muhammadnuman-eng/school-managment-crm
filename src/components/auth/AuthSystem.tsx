@@ -32,11 +32,31 @@ export type UserRole = 'admin' | 'teacher' | 'student' | 'parent';
 
 interface AuthSystemProps {
   onLoginSuccess?: (role: UserRole) => void;
+  initialPortal?: UserRole | null;
+  onBackToPortalSelection?: () => void;
 }
 
-export function AuthSystem({ onLoginSuccess }: AuthSystemProps) {
-  const [currentScreen, setCurrentScreen] = useState<AuthScreen>('portal-selection');
-  const [selectedRole, setSelectedRole] = useState<UserRole | null>(null);
+export function AuthSystem({ onLoginSuccess, initialPortal = null, onBackToPortalSelection }: AuthSystemProps) {
+  // If initial portal is provided, start with the login screen for that portal
+  const getInitialScreen = (): AuthScreen => {
+    if (initialPortal) {
+      switch (initialPortal) {
+        case 'admin':
+          return 'admin-login';
+        case 'teacher':
+          return 'teacher-login';
+        case 'student':
+        case 'parent':
+          return 'student-login';
+        default:
+          return 'portal-selection';
+      }
+    }
+    return 'portal-selection';
+  };
+
+  const [currentScreen, setCurrentScreen] = useState<AuthScreen>(getInitialScreen());
+  const [selectedRole, setSelectedRole] = useState<UserRole | null>(initialPortal);
   const [userEmail, setUserEmail] = useState('');
   const [selectedSchool, setSelectedSchool] = useState<string | null>(null);
   const [tempToken, setTempToken] = useState<string | undefined>(undefined);
@@ -65,16 +85,22 @@ export function AuthSystem({ onLoginSuccess }: AuthSystemProps) {
   };
 
   const handleBackToPortal = () => {
-    setCurrentScreen('portal-selection');
-    setSelectedRole(null);
-    setTempToken(undefined);
-    setSessionId(undefined);
-    setUserId(undefined);
-    setIsFirstLogin(false);
-    // Clear session storage
-    sessionStorage.removeItem('auth_session_id');
-    sessionStorage.removeItem('auth_user_id');
-    sessionStorage.removeItem('auth_temp_token');
+    // If we have onBackToPortalSelection callback (from App level), use it
+    // Otherwise, go back to portal selection within AuthSystem
+    if (onBackToPortalSelection && initialPortal) {
+      onBackToPortalSelection();
+    } else {
+      setCurrentScreen('portal-selection');
+      setSelectedRole(null);
+      setTempToken(undefined);
+      setSessionId(undefined);
+      setUserId(undefined);
+      setIsFirstLogin(false);
+      // Clear session storage
+      sessionStorage.removeItem('auth_session_id');
+      sessionStorage.removeItem('auth_user_id');
+      sessionStorage.removeItem('auth_temp_token');
+    }
   };
 
   const handleForgotPassword = (email: string) => {
@@ -143,6 +169,20 @@ export function AuthSystem({ onLoginSuccess }: AuthSystemProps) {
   };
 
   const renderScreen = () => {
+    // If initialPortal is provided and we're on portal-selection, redirect to login
+    if (currentScreen === 'portal-selection' && initialPortal) {
+      // If we have a callback to go back to App-level portal selection, use it
+      if (onBackToPortalSelection) {
+        onBackToPortalSelection();
+        return null;
+      }
+      // Otherwise, redirect to the appropriate login screen
+      const loginScreen = initialPortal === 'admin' ? 'admin-login' : 
+                         initialPortal === 'teacher' ? 'teacher-login' : 'student-login';
+      setCurrentScreen(loginScreen);
+      return null;
+    }
+
     switch (currentScreen) {
       case 'portal-selection':
         return <PortalSelection onSelectPortal={handlePortalSelect} />;

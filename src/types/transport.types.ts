@@ -138,6 +138,17 @@ export interface TransportRoute {
   stops?: RouteStop[];
   createdAt?: string;
   updatedAt?: string;
+  // Nested objects from backend
+  bus?: {
+    id: string;
+    registrationNumber: string;
+    capacity: number;
+  };
+  driver?: {
+    id: string;
+    name: string;
+    licenseNumber: string;
+  };
 }
 
 /**
@@ -146,8 +157,10 @@ export interface TransportRoute {
 export interface CreateTransportRouteRequest {
   schoolId: string;
   routeName: string;
-  busId: string;
-  driverId: string;
+  busId?: string;
+  busRegistrationNumber?: string;
+  driverId?: string;
+  driverName?: string;
   status?: RouteStatus;
   monthlyFee?: number;
   yearlyFee?: number;

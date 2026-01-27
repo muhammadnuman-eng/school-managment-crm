@@ -6,9 +6,9 @@
 import { ApiResponse } from './api.types';
 
 /**
- * Exam Type
+ * Exam Type - Must match backend enum: MIDTERM, FINAL, QUIZ, TEST, ASSIGNMENT
  */
-export type ExamType = 'QUIZ' | 'MID_TERM' | 'FINAL' | 'ASSIGNMENT' | 'PROJECT';
+export type ExamType = 'QUIZ' | 'MIDTERM' | 'FINAL' | 'TEST' | 'ASSIGNMENT';
 
 /**
  * Exam Status
@@ -76,18 +76,18 @@ export interface CreateExaminationRequest {
   createdBy: string;
   examClasses?: Array<{
     classId: string;
-    sectionId?: string;
+    sectionName?: string; // Backend expects sectionName, not sectionId
   }>;
   examSubjects?: Array<{
-    subjectId: string;
+    subjectName: string; // Backend expects subjectName, not subjectId
     totalMarks: number;
     passingMarks?: number;
     weightage?: number;
   }>;
   examSchedules?: Array<{
     classId: string;
-    sectionId?: string;
-    subjectId: string;
+    sectionName?: string; // Backend expects sectionName, not sectionId
+    subjectName: string; // Backend expects subjectName, not subjectId
     examDate: string;
     startTime: string;
     endTime: string;

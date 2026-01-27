@@ -141,14 +141,7 @@ const mockClasses: ClassData[] = [
   },
 ];
 
-const availableTeachers = [
-  { id: 't1', name: 'Dr. Sarah Mitchell', subject: 'Mathematics' },
-  { id: 't2', name: 'Prof. Michael Chen', subject: 'Physics' },
-  { id: 't3', name: 'Ms. Emma Wilson', subject: 'English' },
-  { id: 't4', name: 'Mr. David Brown', subject: 'Chemistry' },
-  { id: 't5', name: 'Dr. Jane Cooper', subject: 'Biology' },
-  { id: 't6', name: 'Mr. Robert Lee', subject: 'History' },
-];
+// Teachers will be fetched from API
 
 const allSubjects = [
   { id: 'sub1', name: 'English', code: 'ENG' },
@@ -223,21 +216,24 @@ function normalizeSubject(subject: ApiSubject): Subject {
     };
   }
 
+  // Handle nested structure from ClassSubject relation (backend returns subject.subject)
+  const subjectData = subject?.subject || subject;
+  
   // Handle subject name - might be 'name' or 'subjectName'
-  const subjectName = subject?.name || subject?.subjectName || '';
+  const subjectName = subjectData?.name || subjectData?.subjectName || subject?.name || subject?.subjectName || '';
   
   // Handle subject code - might be 'code' or 'subjectCode'
-  const subjectCode = subject?.code || subject?.subjectCode || '';
+  const subjectCode = subjectData?.code || subjectData?.subjectCode || subject?.code || subject?.subjectCode || '';
   
   // Handle teacher - might be object or string
   const teacher = typeof subject?.teacher === 'string' 
     ? subject.teacher 
-    : (subject?.teacher?.name || subject?.teacherName || '');
+    : (subject?.teacher?.name || subject?.teacherName || subjectData?.teacher?.name || '');
   
-  const teacherId = subject?.teacherId || subject?.teacher?.id || subject?.teacher?.uuid;
+  const teacherId = subject?.teacherId || subject?.teacher?.id || subject?.teacher?.uuid || subjectData?.teacherId;
 
   return {
-    id: subject?.id || subject?.uuid || crypto.randomUUID?.() || `${Date.now()}`,
+    id: subjectData?.id || subject?.id || subject?.uuid || crypto.randomUUID?.() || `${Date.now()}`,
     name: typeof subjectName === 'string' ? subjectName : String(subjectName || ''),
     code: subjectCode,
     teacher,
@@ -356,11 +352,34 @@ export function Classes() {
     { id: '1', name: 'A', capacity: 40, enrolled: 0, room: '' }
   ]);
   const [selectedSubjects, setSelectedSubjects] = useState<string[]>([]);
+  const [customSubjects, setCustomSubjects] = useState<Array<{ id: string; name: string; code: string }>>([]);
+  const [showCustomSubjectDialog, setShowCustomSubjectDialog] = useState(false);
+  const [customSubjectName, setCustomSubjectName] = useState('');
+  const [customSubjectCode, setCustomSubjectCode] = useState('');
+  const [availableTeachers, setAvailableTeachers] = useState<Array<{ id: string; name: string }>>([]);
+  const [isLoadingTeachers, setIsLoadingTeachers] = useState(false);
 
-  // Fetch classes and academic years on mount
+  // Get current schoolId to track changes
+  const currentSchoolId = schoolStorage.getSchoolId();
+
+  // Fetch classes, academic years, and teachers on mount and when schoolId changes
   useEffect(() => {
     fetchClasses();
     fetchAcademicYears();
+    fetchTeachers();
+  }, [currentSchoolId]); // Refetch when schoolId changes
+
+  // Listen for refresh events from other components (e.g., when student is added)
+  useEffect(() => {
+    const handleRefresh = () => {
+      fetchClasses();
+    };
+    
+    window.addEventListener('refreshClasses', handleRefresh);
+    
+    return () => {
+      window.removeEventListener('refreshClasses', handleRefresh);
+    };
   }, []);
 
   const fetchClasses = async () => {
@@ -396,6 +415,28 @@ export function Classes() {
       setClasses([]);
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const fetchTeachers = async () => {
+    setIsLoadingTeachers(true);
+    try {
+      const response = await adminService.getTeachers();
+      const teachersList = response.teachers || [];
+      
+      // Transform teachers to match the format expected by the component
+      const transformedTeachers = teachersList.map((teacher: any) => ({
+        id: teacher.id,
+        name: `${teacher.firstName || ''} ${teacher.lastName || ''}`.trim() || teacher.name || 'Unknown Teacher',
+      }));
+      
+      setAvailableTeachers(transformedTeachers);
+    } catch (error: any) {
+      console.error('Error fetching teachers:', error);
+      toast.error('Failed to load teachers');
+      setAvailableTeachers([]);
+    } finally {
+      setIsLoadingTeachers(false);
     }
   };
 
@@ -495,6 +536,31 @@ export function Classes() {
     );
   };
 
+  const handleAddCustomSubject = () => {
+    if (!customSubjectName.trim()) {
+      toast.error('Subject name is required');
+      return;
+    }
+
+    const newCustomSubject = {
+      id: `custom-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+      name: customSubjectName.trim(),
+      code: customSubjectCode.trim() || customSubjectName.trim().substring(0, 3).toUpperCase(),
+    };
+
+    setCustomSubjects(prev => [...prev, newCustomSubject]);
+    setSelectedSubjects(prev => [...prev, newCustomSubject.id]);
+    setCustomSubjectName('');
+    setCustomSubjectCode('');
+    setShowCustomSubjectDialog(false);
+    toast.success(`Subject "${newCustomSubject.name}" added successfully`);
+  };
+
+  const handleRemoveCustomSubject = (subjectId: string) => {
+    setCustomSubjects(prev => prev.filter(s => s.id !== subjectId));
+    setSelectedSubjects(prev => prev.filter(id => id !== subjectId));
+  };
+
   const handleEditClass = async (classData: ClassData) => {
     try {
       const response = await adminService.getClassById(classData.id);
@@ -541,6 +607,16 @@ export function Classes() {
         
         // Set selected subjects
         setSelectedSubjects(classDetails.subjects.map(s => s.id).filter(id => id));
+        
+        // Extract custom subjects from class details
+        const customSubs = classDetails.subjects
+          .filter(s => s.id && s.id.startsWith('custom-'))
+          .map(s => ({
+            id: s.id,
+            name: s.name || s.subjectName || '',
+            code: s.code || s.subjectCode || '',
+          }));
+        setCustomSubjects(customSubs);
         
         setActiveTab('overview');
         setShowAddDialog(true);
@@ -615,6 +691,7 @@ export function Classes() {
     setAcademicYear('2024-2025');
     setSections([{ id: '1', name: 'A', capacity: 40, enrolled: 0, room: '' }]);
     setSelectedSubjects([]);
+    setCustomSubjects([]);
     setActiveTab('overview');
   };
 
@@ -650,6 +727,18 @@ export function Classes() {
     if (isEditMode && editingClassId) {
       // Update existing class - Call API
       setIsSubmitting(true);
+      // Validate sections before sending
+      const validSections = sections.filter(section => {
+        const name = section.name?.trim();
+        return name && name !== '';
+      });
+
+      if (validSections.length === 0) {
+        toast.error('At least one section with a name is required');
+        setIsSubmitting(false);
+        return;
+      }
+
       try {
         const requestData: UpdateClassRequest = {
           className: className.trim(), // Backend expects 'className' not 'name'
@@ -657,13 +746,58 @@ export function Classes() {
           academicYear: academicYear.trim(), // REQUIRED - Backend expects this field
           // Also include academicYearId if available (optional)
           ...(academicYearId && { academicYearId: academicYearId }),
-          sections: sections.map(section => ({
-            name: section.name.trim(),
-            capacity: section.capacity,
+          sections: validSections.map(section => ({
+            sectionName: section.name.trim(), // Backend expects 'sectionName' not 'name'
+            capacity: section.capacity && section.capacity > 0 ? section.capacity : undefined,
             room: section.room?.trim() || undefined,
-            classTeacherId: section.classTeacherId || undefined,
+            classTeacherId: section.classTeacherId && 
+              section.classTeacherId.trim() !== '' && 
+              section.classTeacherId !== '__none__' 
+              ? section.classTeacherId 
+              : undefined,
           })),
-          subjectIds: selectedSubjects.length > 0 ? selectedSubjects : undefined,
+          // Always send subjectIds array - empty array means remove all subjects
+          subjectIds: (() => {
+            // UUID validation regex - filter only valid UUIDs
+            const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+            const validSubjectIds = selectedSubjects
+              .filter(id => id && typeof id === 'string' && id.trim() !== '' && uuidRegex.test(id.trim()));
+            return validSubjectIds; // Send empty array if no valid IDs to remove all subjects
+          })(),
+          ...(selectedSubjects.length > 0 && (() => {
+            // Get all selected subjects that are NOT valid UUIDs (hardcoded subjects + custom subjects)
+            const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+            const nonUuidSubjectIds = selectedSubjects.filter(id => !uuidRegex.test(id));
+            
+            if (nonUuidSubjectIds.length === 0) {
+              return {};
+            }
+
+            // Combine hardcoded subjects and custom subjects
+            const allCustomSubjectsToSend: Array<{ subjectName: string; subjectCode: string }> = [];
+            
+            // Add hardcoded subjects that are selected
+            allSubjects.forEach(subject => {
+              if (nonUuidSubjectIds.includes(subject.id)) {
+                allCustomSubjectsToSend.push({
+                  subjectName: subject.name,
+                  subjectCode: subject.code,
+                });
+              }
+            });
+            
+            // Add custom subjects that are selected
+            customSubjects.forEach(subject => {
+              if (nonUuidSubjectIds.includes(subject.id)) {
+                allCustomSubjectsToSend.push({
+                  subjectName: subject.name,
+                  subjectCode: subject.code,
+                });
+              }
+            });
+            
+            return allCustomSubjectsToSend.length > 0 ? { customSubjects: allCustomSubjectsToSend } : {};
+          })()),
         };
 
         if (import.meta.env.DEV) {
@@ -676,9 +810,9 @@ export function Classes() {
         const response = await adminService.updateClass(editingClassId, requestData);
 
         if (response.data) {
-        const updatedClass: ClassData = normalizeClass(response.data);
-
-          setClasses(classes.map(c => c.id === editingClassId ? updatedClass : c));
+          // Refresh classes list to get latest data including subjects and sections
+          await fetchClasses();
+          
           toast.success(`Class "${className}" updated successfully`);
 
           setShowAddDialog(false);
@@ -770,6 +904,18 @@ export function Classes() {
         }
       }
 
+      // Validate sections before sending
+      const validSections = sections.filter(section => {
+        const name = section.name?.trim();
+        return name && name !== '';
+      });
+
+      if (validSections.length === 0) {
+        toast.error('At least one section with a name is required');
+        setIsSubmitting(false);
+        return;
+      }
+
       // Prepare request data
       // Backend expects: className, academicYear (required), academicYearId (optional)
       const requestData: AddClassRequest = {
@@ -779,13 +925,57 @@ export function Classes() {
         // Also include academicYearId if available (optional but helpful)
         ...(finalAcademicYearId && { academicYearId: finalAcademicYearId }),
         schoolId: schoolId, // Add schoolId to payload
-        sections: sections.map(section => ({
-          name: section.name.trim(),
-          capacity: section.capacity,
+        sections: validSections.map(section => ({
+          sectionName: section.name.trim(), // Backend expects 'sectionName' not 'name'
+          capacity: section.capacity && section.capacity > 0 ? section.capacity : undefined,
           room: section.room?.trim() || undefined,
-          classTeacherId: section.classTeacherId || undefined,
+          classTeacherId: section.classTeacherId && 
+            section.classTeacherId.trim() !== '' && 
+            section.classTeacherId !== '__none__' 
+            ? section.classTeacherId 
+            : undefined,
         })),
-        subjectIds: selectedSubjects.length > 0 ? selectedSubjects : undefined,
+        subjectIds: (() => {
+          // UUID validation regex - filter only valid UUIDs
+          const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+          const validSubjectIds = selectedSubjects
+            .filter(id => id && typeof id === 'string' && id.trim() !== '' && uuidRegex.test(id.trim()));
+          return validSubjectIds.length > 0 ? validSubjectIds : undefined;
+        })(),
+        ...(selectedSubjects.length > 0 && (() => {
+          // Get all selected subjects that are NOT valid UUIDs (hardcoded subjects + custom subjects)
+          const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+          const nonUuidSubjectIds = selectedSubjects.filter(id => !uuidRegex.test(id));
+          
+          if (nonUuidSubjectIds.length === 0) {
+            return {};
+          }
+
+          // Combine hardcoded subjects and custom subjects
+          const allCustomSubjectsToSend: Array<{ subjectName: string; subjectCode: string }> = [];
+          
+          // Add hardcoded subjects that are selected
+          allSubjects.forEach(subject => {
+            if (nonUuidSubjectIds.includes(subject.id)) {
+              allCustomSubjectsToSend.push({
+                subjectName: subject.name,
+                subjectCode: subject.code,
+              });
+            }
+          });
+          
+          // Add custom subjects that are selected
+          customSubjects.forEach(subject => {
+            if (nonUuidSubjectIds.includes(subject.id)) {
+              allCustomSubjectsToSend.push({
+                subjectName: subject.name,
+                subjectCode: subject.code,
+              });
+            }
+          });
+          
+          return allCustomSubjectsToSend.length > 0 ? { customSubjects: allCustomSubjectsToSend } : {};
+        })()),
       };
 
       if (import.meta.env.DEV) {
@@ -805,14 +995,13 @@ export function Classes() {
         // Convert API response to ClassData format
         const newClass: ClassData = normalizeClass(response.data);
 
-        setClasses([...classes, newClass]);
+        // Refresh classes list to get latest data including subjects
+        await fetchClasses();
+        
         toast.success(`Class "${className}" created successfully`);
 
         setShowAddDialog(false);
         handleResetForm();
-
-        // Refresh classes list
-        await fetchClasses();
       } else {
         throw new Error('Invalid response from server');
       }
@@ -1160,16 +1349,53 @@ export function Classes() {
                         <div className="space-y-2 col-span-2">
                           <Label>Class Teacher</Label>
                           <div className="flex gap-2">
-                            <Select onValueChange={(value) => handleUpdateSection(section.id, 'classTeacher', value)}>
+                            <Select 
+                              onValueChange={(value) => {
+                                // Handle "None" option
+                                if (value === '__none__') {
+                                  setSections(prevSections => 
+                                    prevSections.map(s => 
+                                      s.id === section.id 
+                                        ? { ...s, classTeacherId: '', classTeacher: '' }
+                                        : s
+                                    )
+                                  );
+                                  return;
+                                }
+                                
+                                // Find teacher by ID and set both ID and name in single update
+                                const teacher = availableTeachers.find(t => t.id === value);
+                                
+                                if (teacher) {
+                                  setSections(prevSections => 
+                                    prevSections.map(s => 
+                                      s.id === section.id 
+                                        ? { ...s, classTeacherId: teacher.id, classTeacher: teacher.name }
+                                        : s
+                                    )
+                                  );
+                                }
+                              }}
+                              value={section.classTeacherId && section.classTeacherId.trim() !== '' ? section.classTeacherId : '__none__'}
+                            >
                               <SelectTrigger>
-                                <SelectValue placeholder="Assign teacher" />
+                                <SelectValue placeholder={isLoadingTeachers ? "Loading teachers..." : "Assign teacher"} />
                               </SelectTrigger>
                               <SelectContent>
-                                {availableTeachers.map(teacher => (
-                                  <SelectItem key={teacher.id} value={teacher.name}>
-                                    {teacher.name}
-                                  </SelectItem>
-                                ))}
+                                {isLoadingTeachers ? (
+                                  <SelectItem value="__loading__" disabled>Loading teachers...</SelectItem>
+                                ) : availableTeachers.length === 0 ? (
+                                  <SelectItem value="__no_teachers__" disabled>No teachers available</SelectItem>
+                                ) : (
+                                  <>
+                                    <SelectItem value="__none__">None</SelectItem>
+                                    {availableTeachers.map(teacher => (
+                                      <SelectItem key={teacher.id} value={teacher.id}>
+                                        {teacher.name}
+                                      </SelectItem>
+                                    ))}
+                                  </>
+                                )}
                               </SelectContent>
                             </Select>
                             {sections.length > 1 && (
@@ -1197,6 +1423,7 @@ export function Classes() {
                   </p>
                   <Badge variant="outline" className="text-sm">
                     {selectedSubjects.length} {selectedSubjects.length === 1 ? 'Subject' : 'Subjects'} Selected
+                    {customSubjects.length > 0 && ` (${customSubjects.length} custom)`}
                   </Badge>
                 </div>
 
@@ -1236,6 +1463,61 @@ export function Classes() {
                         </Card>
                       );
                     })}
+                    
+                    {/* Custom Subjects */}
+                    {customSubjects.map(subject => {
+                      const isSelected = selectedSubjects.includes(subject.id);
+                      return (
+                        <Card
+                          key={subject.id}
+                          className={`p-4 cursor-pointer transition-all ${
+                            isSelected ? 'border-[#0A66C2] bg-[#E8F0FE] dark:bg-[#0A66C2]/10' : ''
+                          }`}
+                          onClick={() => handleSubjectToggle(subject.id)}
+                        >
+                          <div className="flex items-start gap-3">
+                            <Checkbox
+                              checked={isSelected}
+                              onCheckedChange={() => handleSubjectToggle(subject.id)}
+                            />
+                            <div className="flex-1 flex items-center justify-between">
+                              <div>
+                                <p className="text-sm text-gray-900 dark:text-white mb-1">
+                                  {subject.name}
+                                </p>
+                                <p className="text-xs text-gray-500 dark:text-gray-400">
+                                  Code: {subject.code}
+                                </p>
+                              </div>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-6 w-6 text-red-600 hover:text-red-700"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleRemoveCustomSubject(subject.id);
+                                }}
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </Button>
+                            </div>
+                          </div>
+                        </Card>
+                      );
+                    })}
+                    
+                    {/* Other/Add Custom Subject Card */}
+                    <Card
+                      className="p-4 cursor-pointer transition-all border-dashed border-2 border-gray-300 dark:border-gray-600 hover:border-[#0A66C2] hover:bg-[#E8F0FE]/50 dark:hover:bg-[#0A66C2]/5"
+                      onClick={() => setShowCustomSubjectDialog(true)}
+                    >
+                      <div className="flex flex-col items-center justify-center gap-2 h-full min-h-[80px]">
+                        <Plus className="w-6 h-6 text-gray-400" />
+                        <p className="text-sm text-gray-600 dark:text-gray-400 text-center">
+                          Add Custom Subject
+                        </p>
+                      </div>
+                    </Card>
                   </div>
                 </ScrollArea>
               </TabsContent>
@@ -1389,6 +1671,67 @@ export function Classes() {
               </div>
             </ScrollArea>
           )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Custom Subject Dialog */}
+      <Dialog open={showCustomSubjectDialog} onOpenChange={setShowCustomSubjectDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Add Custom Subject</DialogTitle>
+            <DialogDescription>
+              Add a new subject that will be available for this class
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <Label htmlFor="customSubjectName">Subject Name *</Label>
+              <Input
+                id="customSubjectName"
+                placeholder="e.g., Economics, Psychology"
+                value={customSubjectName}
+                onChange={(e) => setCustomSubjectName(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    handleAddCustomSubject();
+                  }
+                }}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="customSubjectCode">Subject Code (Optional)</Label>
+              <Input
+                id="customSubjectCode"
+                placeholder="e.g., ECO, PSY"
+                value={customSubjectCode}
+                onChange={(e) => setCustomSubjectCode(e.target.value.toUpperCase())}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    handleAddCustomSubject();
+                  }
+                }}
+              />
+              <p className="text-xs text-gray-500 dark:text-gray-400">
+                Leave empty to auto-generate from subject name
+              </p>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => {
+              setShowCustomSubjectDialog(false);
+              setCustomSubjectName('');
+              setCustomSubjectCode('');
+            }}>
+              Cancel
+            </Button>
+            <Button
+              className="bg-[#0A66C2] hover:bg-[#0052A3]"
+              onClick={handleAddCustomSubject}
+              disabled={!customSubjectName.trim()}
+            >
+              Add Subject
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
 

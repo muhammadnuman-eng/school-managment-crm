@@ -74,6 +74,10 @@ export function SchoolLoginPage() {
         }
       }
 
+      // IMPORTANT: Clear previous school ID first to ensure fresh data
+      // This ensures that when switching schools, old data doesn't persist
+      schoolStorage.clearSchoolId();
+      
       // Extract school ID from multiple possible locations in response
       const schoolId =
         (response as any).school?.id ||
@@ -94,6 +98,7 @@ export function SchoolLoginPage() {
 
       if (schoolId) {
         console.log('Storing school UUID after school login:', schoolId);
+        // Store new school ID (old one already cleared above)
         schoolStorage.setSchoolId(String(schoolId));
         
         // Verify school UUID was stored

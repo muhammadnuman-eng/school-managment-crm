@@ -80,6 +80,15 @@ export interface HostelRoom {
   availableBeds?: number;
   createdAt?: string;
   updatedAt?: string;
+  // Nested objects from backend
+  building?: {
+    id: string;
+    buildingName: string;
+    buildingType: BuildingType;
+  };
+  _count?: {
+    allocations: number;
+  };
 }
 
 /**

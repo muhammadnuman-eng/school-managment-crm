@@ -11,6 +11,7 @@ import { adminService } from '../../services';
 import { AddStudentRequest, UpdateStudentRequest, Student as StudentType } from '../../types/student.types';
 import { getUserFriendlyError } from '../../utils/errors';
 import { ApiException } from '../../utils/errors';
+import { schoolStorage } from '../../utils/storage';
 import {
   Table,
   TableBody,
@@ -90,10 +91,13 @@ export function Students() {
     return 'Active'; // Default
   };
 
+  // Get current schoolId to track changes
+  const currentSchoolId = schoolStorage.getSchoolId();
+
   // Fetch students from API
   useEffect(() => {
     fetchStudents();
-  }, [currentViewClass]); // Refetch when class view changes
+  }, [currentViewClass, currentSchoolId]); // Refetch when class view or schoolId changes
 
   const fetchStudents = async () => {
     setIsLoading(true);
@@ -1316,6 +1320,9 @@ export function Students() {
           }
         );
 
+        // Dispatch custom event to refresh classes data
+        window.dispatchEvent(new CustomEvent('refreshClasses'));
+        
         // Refresh students list - this will use the updated currentViewClass if we switched it
         await fetchStudents();
 

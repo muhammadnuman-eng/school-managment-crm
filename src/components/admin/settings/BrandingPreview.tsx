@@ -4,9 +4,19 @@ import { Bell, Search, Menu } from 'lucide-react';
 
 interface BrandingPreviewProps {
   settings: SettingsData;
+  stats?: {
+    totalStudents?: number;
+    totalTeachers?: number;
+    totalClasses?: number;
+  };
 }
 
-export function BrandingPreview({ settings }: BrandingPreviewProps) {
+export function BrandingPreview({ settings, stats }: BrandingPreviewProps) {
+  // Format number with commas
+  const formatNumber = (num: number | undefined) => {
+    if (num === undefined || num === null) return '0';
+    return new Intl.NumberFormat('en-US').format(num);
+  };
   return (
     <Card className="p-6 bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700 overflow-hidden">
       <div className="mb-4">
@@ -84,19 +94,19 @@ export function BrandingPreview({ settings }: BrandingPreviewProps) {
             <div className="bg-white dark:bg-gray-800 p-3 rounded-lg border border-gray-200 dark:border-gray-700">
               <p className="text-xs text-gray-600 dark:text-gray-400">Total Students</p>
               <p className="text-xl text-gray-900 dark:text-white" style={{ fontFamily: settings.fontFamily }}>
-                1,234
+                {formatNumber(stats?.totalStudents)}
               </p>
             </div>
             <div className="bg-white dark:bg-gray-800 p-3 rounded-lg border border-gray-200 dark:border-gray-700">
               <p className="text-xs text-gray-600 dark:text-gray-400">Teachers</p>
               <p className="text-xl text-gray-900 dark:text-white" style={{ fontFamily: settings.fontFamily }}>
-                156
+                {formatNumber(stats?.totalTeachers)}
               </p>
             </div>
             <div className="bg-white dark:bg-gray-800 p-3 rounded-lg border border-gray-200 dark:border-gray-700">
               <p className="text-xs text-gray-600 dark:text-gray-400">Classes</p>
               <p className="text-xl text-gray-900 dark:text-white" style={{ fontFamily: settings.fontFamily }}>
-                48
+                {formatNumber(stats?.totalClasses)}
               </p>
             </div>
           </div>

@@ -7,18 +7,19 @@ import { ApiResponse } from './api.types';
 
 /**
  * Announcement Category
+ * Matches backend enum: HOLIDAY, EVENT, MEETING, GENERAL
  */
-export type AnnouncementCategory = 'GENERAL' | 'ACADEMIC' | 'EVENT' | 'EMERGENCY' | 'HOLIDAY';
+export type AnnouncementCategory = 'GENERAL' | 'EVENT' | 'MEETING' | 'HOLIDAY';
 
 /**
- * Priority Level
+ * Priority Level (matches Prisma Priority enum: HIGH, NORMAL, LOW)
  */
-export type PriorityLevel = 'LOW' | 'MEDIUM' | 'HIGH' | 'URGENT';
+export type PriorityLevel = 'LOW' | 'NORMAL' | 'HIGH';
 
 /**
  * Target Audience
  */
-export type TargetAudience = 'ALL' | 'STUDENTS' | 'TEACHERS' | 'PARENTS' | 'SPECIFIC_CLASS' | 'SPECIFIC_SECTION';
+export type TargetAudience = 'ALL' | 'STUDENTS' | 'TEACHERS' | 'PARENTS' | 'SPECIFIC_CLASSES' | 'SPECIFIC_CLASS' | 'SPECIFIC_SECTION';
 
 /**
  * Announcement

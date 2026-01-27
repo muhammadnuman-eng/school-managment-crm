@@ -214,6 +214,9 @@ export function CreateSchoolPage() {
 
       toast.success('School registered successfully!');
       
+      // IMPORTANT: Clear any previous school ID first
+      schoolStorage.clearSchoolId();
+      
       // Store school UUID for subsequent requests
       console.log('Storing school UUID after school creation:', schoolId);
       schoolStorage.setSchoolId(String(schoolId));

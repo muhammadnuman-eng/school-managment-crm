@@ -341,20 +341,40 @@ class ApiClient {
    * Handle response
    */
   private async handleResponse<T>(response: Response): Promise<ApiResponse<T>> {
+    // Handle 304 Not Modified - successful response with no body
+    if (response.status === 304) {
+      return {
+        success: true,
+        data: {} as T,
+        message: 'Not modified',
+        timestamp: new Date().toISOString(),
+      };
+    }
+
     const contentType = response.headers.get('content-type');
     const isJson = contentType?.includes('application/json');
 
     let data: any;
     
     try {
-      if (isJson) {
+      // Check if response has a body before trying to parse
+      const contentLength = response.headers.get('content-length');
+      if (contentLength === '0' || !contentLength) {
+        // No body, return empty data
+        data = {};
+      } else if (isJson) {
         data = await response.json();
       } else {
         const text = await response.text();
         data = text ? { message: text } : {};
       }
     } catch (error) {
-      throw new ApiException('Invalid response format', 500, 'INVALID_RESPONSE');
+      // If parsing fails but status is 2xx, return empty data instead of throwing
+      if (response.ok) {
+        data = {};
+      } else {
+        throw new ApiException('Invalid response format', 500, 'INVALID_RESPONSE');
+      }
     }
 
     // Handle non-2xx responses
@@ -389,11 +409,14 @@ class ApiClient {
 
       // Log error details for debugging
       if (response.status === 400) {
-        console.error('Bad Request Error:', {
+        console.error('Bad Request Error (400):', {
           status: response.status,
           data,
           url: response.url,
           fullResponse: data,
+          message: data?.message,
+          error: data?.error,
+          validationErrors: data?.message,
         });
       }
 

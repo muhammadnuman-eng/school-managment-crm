@@ -75,6 +75,7 @@ export const API_ENDPOINTS = {
         base: '/admin/fees/student-fees',
         getById: (id: string) => `/admin/fees/student-fees/${id}`,
         invoice: (id: string) => `/admin/fees/student-fees/${id}/invoice`,
+        reportDownload: (format?: 'csv' | 'json') => `/admin/fees/student-fees/report/download${format ? `?format=${format}` : ''}`,
       },
       overview: '/admin/fees/overview',
       payments: {
@@ -84,6 +85,7 @@ export const API_ENDPOINTS = {
         base: '/admin/fees/expenses',
         overview: '/admin/fees/expenses/overview',
         getById: (id: string) => `/admin/fees/expenses/${id}`,
+        reportDownload: (format?: 'csv' | 'json') => `/admin/fees/expenses/report/download${format ? `?format=${format}` : ''}`,
       },
     },
     
@@ -184,6 +186,17 @@ export const API_ENDPOINTS = {
       },
     },
     
+    // Analytics
+    analytics: {
+      students: '/admin/analytics/students',
+      teachers: '/admin/analytics/teachers',
+      revenueTrend: '/admin/analytics/revenue/trend',
+      attendanceTrend: '/admin/analytics/attendance/trend',
+      studentGrowthTrend: '/admin/analytics/students/growth-trend',
+      classAttendance: '/admin/analytics/classes/attendance',
+      financialStatements: '/admin/analytics/financial/statements',
+    },
+    
     // Legacy endpoints (kept for backward compatibility)
     feeTypes: '/admin/fees/fee-types',
     studentFees: '/admin/fees/student-fees',
@@ -233,10 +246,26 @@ export const API_ENDPOINTS = {
   },
   // Schools
   schools: {
-    create: '/schools',
-    getById: (id: string) => `/schools/${id}`,
-    update: (id: string) => `/schools/${id}`,
-    delete: (id: string) => `/schools/${id}`,
+    create: '/admin/schools',
+    getById: (id: string) => `/admin/schools/${id}`,
+    update: (id: string) => `/admin/schools/${id}`,
+    delete: (id: string) => `/admin/schools/${id}`,
   },
+  
+    // Settings
+    settings: {
+      systemSettings: {
+        base: '/admin/settings/system-settings',
+        getById: (id: string) => `/admin/settings/system-settings/${id}`,
+      },
+      integrations: {
+        base: '/admin/settings/integrations',
+        getById: (id: string) => `/admin/settings/integrations/${id}`,
+      },
+      auditLogs: {
+        base: '/admin/settings/audit-logs',
+        getById: (id: string) => `/admin/settings/audit-logs/${id}`,
+      },
+    },
 } as const;
 

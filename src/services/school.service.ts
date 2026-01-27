@@ -32,15 +32,28 @@ class SchoolService {
    * Get School by ID
    */
   async getSchoolById(schoolId: string): Promise<ApiResponse<School>> {
-    const response = await apiClient.get<School>(
-      API_ENDPOINTS.schools.getById(schoolId)
-    );
+    try {
+      const response = await apiClient.get<School>(
+        API_ENDPOINTS.schools.getById(schoolId)
+      );
 
-    if (!response.data) {
+      if (import.meta.env.DEV) {
+        console.log('Get School by ID API Response:', response);
+      }
+
+      // Handle different response structures
+      if (response.data) {
+        return response;
+      } else if (response) {
+        // If response is the school object directly
+        return { data: response as School } as ApiResponse<School>;
+      }
+
       throw new Error('Invalid response from server');
+    } catch (error: any) {
+      console.error('Error fetching school:', error);
+      throw error;
     }
-
-    return response;
   }
 
   /**
