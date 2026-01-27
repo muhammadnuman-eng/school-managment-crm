@@ -385,6 +385,16 @@ export function Classes() {
   const fetchClasses = async () => {
     setIsLoading(true);
     try {
+      // Check if school ID is available before making API call
+      const schoolId = schoolStorage.getSchoolId();
+      if (!schoolId) {
+        console.warn('No schoolId found, skipping classes fetch');
+        toast.error('School ID not found. Please login to your school first.');
+        setIsLoading(false);
+        setClasses([]);
+        return;
+      }
+      
       const response = await adminService.getClasses();
 
       if (import.meta.env.DEV) {

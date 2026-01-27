@@ -4,6 +4,7 @@ import { Button } from '../ui/button';
 import { Card } from '../ui/card';
 import { UserRole } from './AuthSystem';
 import { adminService } from '../../services';
+import { authService } from '../../services';
 
 interface PortalSelectionProps {
   onSelectPortal: (role: UserRole) => void;
@@ -16,14 +17,30 @@ export function PortalSelection({ onSelectPortal }: PortalSelectionProps) {
     students: 0,
     schools: 0,
   });
-  const [isLoading, setIsLoading] = useState(true);
+  const [isLoading, setIsLoading] = useState(false); // Start with false, only set true if we actually fetch
 
-  // Fetch counts from API
+  // Fetch counts from API - only if user is authenticated
   useEffect(() => {
+    // Check if user is authenticated before making API call
+    const isAuthenticated = authService.isAuthenticated();
+    
+    // If not authenticated, skip API call and use default values
+    if (!isAuthenticated) {
+      setIsLoading(false);
+      setCounts({
+        admins: 0,
+        teachers: 0,
+        students: 0,
+        schools: 0,
+      });
+      return;
+    }
+
+    // Only fetch if authenticated
     const fetchCounts = async () => {
       try {
         setIsLoading(true);
-        // Try to fetch dashboard stats (may require auth, so we'll handle errors gracefully)
+        // Try to fetch dashboard stats
         const stats = await adminService.getDashboardStats();
         
         setCounts({
@@ -33,14 +50,14 @@ export function PortalSelection({ onSelectPortal }: PortalSelectionProps) {
           schools: 0, // School count might not be in stats
         });
       } catch (error: any) {
-        // If API fails (e.g., not authenticated), use default values
-        // Silently handle errors - this is expected if user is not authenticated
+        // If API fails, use default values
+        // Silently handle errors - this is expected if API fails
         // Ignore browser extension errors (message channel errors)
         const errorMessage = error?.message || String(error || '');
         if (!errorMessage.includes('message channel') && !errorMessage.includes('enable_copy')) {
           // Only log non-extension errors in dev mode
           if (import.meta.env.DEV) {
-            console.log('Could not fetch portal counts (may require authentication):', error);
+            console.log('Could not fetch portal counts:', error);
           }
         }
         setCounts({
@@ -56,7 +73,7 @@ export function PortalSelection({ onSelectPortal }: PortalSelectionProps) {
 
     fetchCounts().catch(() => {
       // Silently handle any unhandled promise rejections
-      // This is expected if API requires authentication
+      setIsLoading(false);
     });
   }, []);
 

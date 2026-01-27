@@ -85,21 +85,48 @@ export function Analytics() {
     return `PKR ${amount.toFixed(2)}`;
   };
 
+  // Default months for axis labels
+  const defaultMonths = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun'];
+  
   // Prepare monthly data for charts (combining student growth and revenue)
-  const monthlyData = studentGrowthTrend.data?.map((item: any, index: number) => {
-    const revenueItem = revenueTrend.data?.[index];
-    return {
-      month: item.label || item.month,
-      students: item.students || 0,
-      revenue: revenueItem?.revenue || 0,
-    };
-  }) || [];
+  // If no data, use default months with zero values to show axis
+  const monthlyData = (() => {
+    if (studentGrowthTrend.data && studentGrowthTrend.data.length > 0) {
+      return studentGrowthTrend.data.map((item: any, index: number) => {
+        const revenueItem = revenueTrend.data?.[index];
+        return {
+          month: item.label || item.month || defaultMonths[index] || `Month ${index + 1}`,
+          students: item.students || 0,
+          revenue: revenueItem?.revenue || 0,
+        };
+      });
+    }
+    // Return default data with months and zero values to show axis
+    return defaultMonths.map(month => ({
+      month,
+      students: 0,
+      revenue: 0,
+    }));
+  })();
 
   // Prepare attendance data by class/grade
+  // If no data, return empty array (will show axis with default handling)
   const attendanceData = classAttendance.data?.map((item: any) => ({
     name: item.className || `Grade ${item.gradeLevel || 'N/A'}`,
     attendance: item.percentage || 0,
   })) || [];
+  
+  // Prepare attendance trend data with default months if empty
+  const attendanceTrendData = (() => {
+    if (attendanceTrend.data && attendanceTrend.data.length > 0) {
+      return attendanceTrend.data;
+    }
+    // Return default data with months and zero values to show axis
+    return defaultMonths.map(month => ({
+      label: month,
+      average: 0,
+    }));
+  })();
 
   // Prepare fee collection data
   const feeCollectionData = financialStatements ? [
@@ -244,42 +271,59 @@ export function Analytics() {
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
             <Card className="p-6">
               <h3 className="text-lg text-gray-900 dark:text-white mb-4">Student Growth Trend</h3>
-              {monthlyData.length > 0 ? (
-                <ResponsiveContainer width="100%" height={300}>
-                  <LineChart data={monthlyData}>
-                    <CartesianGrid strokeDasharray="3 3" className="stroke-gray-200 dark:stroke-gray-700" />
-                    <XAxis dataKey="month" className="text-sm" />
-                    <YAxis className="text-sm" />
-                    <Tooltip />
-                    <Legend />
-                    <Line type="monotone" dataKey="students" stroke="#0A66C2" strokeWidth={2} name="Students" />
-                  </LineChart>
-                </ResponsiveContainer>
-              ) : (
-                <div className="flex items-center justify-center h-[300px] text-gray-500">
-                  No data available
-                </div>
-              )}
+              <ResponsiveContainer width="100%" height={300}>
+                <LineChart data={monthlyData}>
+                  <CartesianGrid strokeDasharray="3 3" className="stroke-gray-200 dark:stroke-gray-700" opacity={0.5} />
+                  <XAxis 
+                    dataKey="month" 
+                    className="text-sm"
+                    stroke="#9CA3AF"
+                    tick={{ fill: '#6B7280' }}
+                    ticks={defaultMonths}
+                  />
+                  <YAxis 
+                    className="text-sm"
+                    stroke="#9CA3AF"
+                    tick={{ fill: '#6B7280' }}
+                    domain={[0, 'auto']}
+                    tickFormatter={(value) => value.toString()}
+                    label={{ value: 'Students', angle: -90, position: 'insideLeft', style: { textAnchor: 'middle', fill: '#6B7280' } }}
+                  />
+                  <Tooltip />
+                  <Legend />
+                  <Line type="monotone" dataKey="students" stroke="#0A66C2" strokeWidth={2} name="Students" />
+                </LineChart>
+              </ResponsiveContainer>
             </Card>
 
             <Card className="p-6">
               <h3 className="text-lg text-gray-900 dark:text-white mb-4">Revenue Trend (PKR)</h3>
-              {monthlyData.length > 0 ? (
-                <ResponsiveContainer width="100%" height={300}>
-                  <LineChart data={monthlyData}>
-                    <CartesianGrid strokeDasharray="3 3" className="stroke-gray-200 dark:stroke-gray-700" />
-                    <XAxis dataKey="month" className="text-sm" />
-                    <YAxis className="text-sm" />
-                    <Tooltip formatter={(value: any) => formatCurrency(value)} />
-                    <Legend />
-                    <Line type="monotone" dataKey="revenue" stroke="#10B981" strokeWidth={2} name="Revenue" />
-                  </LineChart>
-                </ResponsiveContainer>
-              ) : (
-                <div className="flex items-center justify-center h-[300px] text-gray-500">
-                  No data available
-                </div>
-              )}
+              <ResponsiveContainer width="100%" height={300}>
+                <LineChart data={monthlyData}>
+                  <CartesianGrid strokeDasharray="3 3" className="stroke-gray-200 dark:stroke-gray-700" opacity={0.5} />
+                  <XAxis 
+                    dataKey="month" 
+                    className="text-sm"
+                    stroke="#9CA3AF"
+                    tick={{ fill: '#6B7280' }}
+                    ticks={defaultMonths}
+                  />
+                  <YAxis 
+                    className="text-sm"
+                    stroke="#9CA3AF"
+                    tick={{ fill: '#6B7280' }}
+                    domain={[0, 'auto']}
+                    tickFormatter={(value) => {
+                      if (value >= 1000) return `${(value / 1000).toFixed(0)}K`;
+                      return value.toString();
+                    }}
+                    label={{ value: 'Amount (PKR)', angle: -90, position: 'insideLeft', style: { textAnchor: 'middle', fill: '#6B7280' } }}
+                  />
+                  <Tooltip formatter={(value: any) => formatCurrency(value)} />
+                  <Legend />
+                  <Line type="monotone" dataKey="revenue" stroke="#10B981" strokeWidth={2} name="Revenue" />
+                </LineChart>
+              </ResponsiveContainer>
             </Card>
           </div>
         </TabsContent>
@@ -288,22 +332,29 @@ export function Analytics() {
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
             <Card className="p-6">
               <h3 className="text-lg text-gray-900 dark:text-white mb-4">Attendance by Class</h3>
-              {attendanceData.length > 0 ? (
-                <ResponsiveContainer width="100%" height={350}>
-                  <BarChart data={attendanceData}>
-                    <CartesianGrid strokeDasharray="3 3" className="stroke-gray-200 dark:stroke-gray-700" />
-                    <XAxis dataKey="name" className="text-sm" />
-                    <YAxis className="text-sm" />
-                    <Tooltip formatter={(value: any) => `${value.toFixed(1)}%`} />
-                    <Legend />
-                    <Bar dataKey="attendance" fill="#0A66C2" name="Attendance %" />
-                  </BarChart>
-                </ResponsiveContainer>
-              ) : (
-                <div className="flex items-center justify-center h-[350px] text-gray-500">
-                  No attendance data available
-                </div>
-              )}
+              <ResponsiveContainer width="100%" height={350}>
+                <BarChart data={attendanceData.length > 0 ? attendanceData : [{ name: 'No Data', attendance: 0 }]}>
+                  <CartesianGrid strokeDasharray="3 3" className="stroke-gray-200 dark:stroke-gray-700" opacity={0.5} />
+                  <XAxis 
+                    dataKey="name" 
+                    className="text-sm"
+                    stroke="#9CA3AF"
+                    tick={{ fill: '#6B7280' }}
+                  />
+                  <YAxis 
+                    className="text-sm"
+                    stroke="#9CA3AF"
+                    tick={{ fill: '#6B7280' }}
+                    domain={[0, 100]}
+                    tickFormatter={(value) => `${value}%`}
+                    ticks={[0, 20, 40, 60, 80, 100]}
+                    label={{ value: 'Attendance %', angle: -90, position: 'insideLeft', style: { textAnchor: 'middle', fill: '#6B7280' } }}
+                  />
+                  <Tooltip formatter={(value: any) => `${value.toFixed(1)}%`} />
+                  <Legend />
+                  <Bar dataKey="attendance" fill="#0A66C2" name="Attendance %" />
+                </BarChart>
+              </ResponsiveContainer>
             </Card>
 
             <Card className="p-6">
@@ -337,22 +388,30 @@ export function Analytics() {
         <TabsContent value="performance">
           <Card className="p-6">
             <h3 className="text-lg text-gray-900 dark:text-white mb-4">Attendance Trend (Last 6 Months)</h3>
-            {attendanceTrend.data && attendanceTrend.data.length > 0 ? (
-              <ResponsiveContainer width="100%" height={400}>
-                <BarChart data={attendanceTrend.data}>
-                  <CartesianGrid strokeDasharray="3 3" className="stroke-gray-200 dark:stroke-gray-700" />
-                  <XAxis dataKey="label" className="text-sm" />
-                  <YAxis className="text-sm" />
-                  <Tooltip formatter={(value: any) => `${value.toFixed(1)}%`} />
-                  <Legend />
-                  <Bar dataKey="average" fill="#7C3AED" name="Average Attendance %" />
-                </BarChart>
-              </ResponsiveContainer>
-            ) : (
-              <div className="flex items-center justify-center h-[400px] text-gray-500">
-                No performance data available
-              </div>
-            )}
+            <ResponsiveContainer width="100%" height={400}>
+              <BarChart data={attendanceTrendData}>
+                <CartesianGrid strokeDasharray="3 3" className="stroke-gray-200 dark:stroke-gray-700" opacity={0.5} />
+                <XAxis 
+                  dataKey="label" 
+                  className="text-sm"
+                  stroke="#9CA3AF"
+                  tick={{ fill: '#6B7280' }}
+                  ticks={defaultMonths}
+                />
+                <YAxis 
+                  className="text-sm"
+                  stroke="#9CA3AF"
+                  tick={{ fill: '#6B7280' }}
+                  domain={[0, 100]}
+                  tickFormatter={(value) => `${value}%`}
+                  ticks={[0, 20, 40, 60, 80, 100]}
+                  label={{ value: 'Attendance %', angle: -90, position: 'insideLeft', style: { textAnchor: 'middle', fill: '#6B7280' } }}
+                />
+                <Tooltip formatter={(value: any) => `${value.toFixed(1)}%`} />
+                <Legend />
+                <Bar dataKey="average" fill="#7C3AED" name="Average Attendance %" />
+              </BarChart>
+            </ResponsiveContainer>
           </Card>
         </TabsContent>
 

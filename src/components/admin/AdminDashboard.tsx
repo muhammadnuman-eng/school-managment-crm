@@ -41,9 +41,10 @@ const defaultClassDistribution = [
 ];
 */
 
-// Empty defaults - charts will show empty if API doesn't return data
-const defaultAttendanceTrend: Array<{ month: string; attendance: number }> = [];
-const defaultRevenueData: Array<{ month: string; revenue: number; expenses: number }> = [];
+// Default data with axis labels - shows axis values even when no data
+const defaultMonths = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun'];
+const defaultAttendanceTrend: Array<{ month: string; attendance: number }> = defaultMonths.map(month => ({ month, attendance: 0 }));
+const defaultRevenueData: Array<{ month: string; revenue: number; expenses: number }> = defaultMonths.map(month => ({ month, revenue: 0, expenses: 0 }));
 const defaultClassDistribution: Array<{ name: string; value: number; color: string }> = [];
 
 export function AdminDashboard() {
@@ -63,7 +64,16 @@ export function AdminDashboard() {
       const schoolId = schoolStorage.getSchoolId();
       if (!schoolId) {
         console.warn('No schoolId found, skipping dashboard stats fetch');
+        toast.error('School ID not found. Please login to your school first.');
         setIsLoading(false);
+        setStats({
+          students: { total: 0, change: 0, changeType: 'positive' },
+          teachers: { total: 0, change: 0, changeType: 'positive' },
+          fees: { total: 0, currency: 'PKR', change: 0, changeType: 'positive' },
+          attendance: { average: 0, change: 0, changeType: 'positive' },
+          topPerformers: [],
+          recentActivities: [],
+        });
         return;
       }
       
@@ -201,6 +211,7 @@ export function AdminDashboard() {
         revenueDataLength: Array.isArray(stats?.revenueData) ? stats.revenueData.length : 'N/A',
       });
     }
+    // Return default data with months and zero values to show axis
     return defaultRevenueData;
   })();
   
@@ -224,6 +235,7 @@ export function AdminDashboard() {
         attendanceTrendLength: Array.isArray(stats?.attendanceTrend) ? stats.attendanceTrend.length : 'N/A',
       });
     }
+    // Return default data with months and zero values to show axis
     return defaultAttendanceTrend;
   })();
   
@@ -367,10 +379,19 @@ export function AdminDashboard() {
                     className="text-sm"
                     stroke="#9CA3AF"
                     tick={{ fill: '#6B7280' }}
+                    ticks={revenueData.length > 0 ? undefined : defaultMonths}
+                    domain={['dataMin', 'dataMax']}
                   />
                   <YAxis
                     stroke="#9CA3AF"
                     tick={{ fill: '#6B7280' }}
+                    domain={[0, 'auto']}
+                    tickFormatter={(value) => {
+                      if (value >= 1000) return `${(value / 1000).toFixed(0)}K`;
+                      return value.toString();
+                    }}
+                    ticks={revenueData.length > 0 ? undefined : [0, 20000, 40000, 60000, 80000, 100000]}
+                    label={{ value: 'Amount (PKR)', angle: -90, position: 'insideLeft', style: { textAnchor: 'middle', fill: '#6B7280' } }}
                   />
                   <Tooltip
                     contentStyle={{
@@ -613,10 +634,16 @@ export function AdminDashboard() {
                   className="text-sm"
                   stroke="#9CA3AF"
                   tick={{ fill: '#6B7280' }}
+                  ticks={attendanceTrend.length > 0 ? undefined : defaultMonths}
+                  domain={['dataMin', 'dataMax']}
                 />
                 <YAxis
                   stroke="#9CA3AF"
                   tick={{ fill: '#6B7280' }}
+                  domain={[0, 100]}
+                  tickFormatter={(value) => `${value}%`}
+                  ticks={[0, 20, 40, 60, 80, 100]}
+                  label={{ value: 'Attendance %', angle: -90, position: 'insideLeft', style: { textAnchor: 'middle', fill: '#6B7280' } }}
                 />
                 <Tooltip
                   contentStyle={{

@@ -141,7 +141,18 @@ export function TwoFactorAuth({ email, tempToken, sessionId, userId, onVerified,
 
       // Check if verification successful
       if (response.tokens && response.user) {
-        toast.success('Verification successful! Redirecting to dashboard...');
+        // Store tokens and user data
+        const rememberMe = sessionStorage.getItem('auth_remember_me') === 'true';
+        tokenStorage.setTokens(response.tokens, rememberMe);
+        userStorage.setUser(response.user, rememberMe);
+        
+        // Clear session storage
+        sessionStorage.removeItem('auth_session_id');
+        sessionStorage.removeItem('auth_user_id');
+        sessionStorage.removeItem('auth_temp_token');
+        sessionStorage.removeItem('auth_remember_me');
+        
+        toast.success('Verification successful! Redirecting...');
         // Small delay to show success message
         setTimeout(() => {
           onVerified();

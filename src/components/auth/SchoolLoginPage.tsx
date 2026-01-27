@@ -105,17 +105,28 @@ export function SchoolLoginPage() {
         const storedSchoolId = schoolStorage.getSchoolId();
         console.log('School UUID stored successfully:', !!storedSchoolId, storedSchoolId);
         
+        // Show success message and redirect to LoginSuccess screen first
         toast.success('School login successful');
-        // Redirect to dashboard - App component will check auth on mount
-        navigate(`/admin/school/${schoolId}/dashboard`);
+        
+        // Store school login success flag to show LoginSuccess screen
+        sessionStorage.setItem('school_login_success', 'true');
+        sessionStorage.setItem('school_login_school_id', String(schoolId));
+        
+        // Redirect to login success page which will then redirect to dashboard
+        navigate('/admin/login-success');
       } else {
         // If no schoolId found, check if user has schoolId
         const userSchoolId = response.user?.schoolId;
         if (userSchoolId) {
           console.log('Using user schoolId:', userSchoolId);
           schoolStorage.setSchoolId(String(userSchoolId));
+          
+          // Store school login success flag
+          sessionStorage.setItem('school_login_success', 'true');
+          sessionStorage.setItem('school_login_school_id', String(userSchoolId));
+          
           toast.success('School login successful');
-          navigate(`/admin/school/${userSchoolId}/dashboard`);
+          navigate('/admin/login-success');
         } else {
           // No school found - show error and stay on login page
           console.error('No school ID found in login response:', response);

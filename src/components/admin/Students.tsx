@@ -102,6 +102,16 @@ export function Students() {
   const fetchStudents = async () => {
     setIsLoading(true);
     try {
+      // Check if school ID is available before making API call
+      const schoolId = schoolStorage.getSchoolId();
+      if (!schoolId) {
+        console.warn('No schoolId found, skipping students fetch');
+        toast.error('School ID not found. Please login to your school first.');
+        setIsLoading(false);
+        setStudents([]);
+        return;
+      }
+      
       // Extract grade from currentViewClass (e.g., "Grade 10" -> "Grade 10")
       const response = await adminService.getStudents({
         class: currentViewClass,

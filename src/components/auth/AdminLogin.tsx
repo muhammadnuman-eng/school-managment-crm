@@ -149,8 +149,12 @@ export function AdminLogin({ onBack, onForgotPassword, onLogin, onSignup }: Admi
         sessionStorage.removeItem('auth_user_id');
         sessionStorage.removeItem('auth_temp_token');
 
-        toast.success('Login successful');
-        onLogin(email, password, false);
+        toast.success('Admin login successful');
+        // Redirect directly to school login page (don't show login-success screen)
+        // Use navigate instead of window.location to avoid page reload
+        setTimeout(() => {
+          window.location.href = '/admin/school-login';
+        }, 500);
       }
     } catch (error: any) {
       // Handle errors

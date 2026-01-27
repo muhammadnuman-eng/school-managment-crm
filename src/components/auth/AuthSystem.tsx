@@ -135,6 +135,11 @@ export function AuthSystem({ onLoginSuccess, initialPortal = null, onBackToPorta
     if (needs2FA) {
       setCurrentScreen('2fa');
     } else {
+      // For admin, redirect to school login instead of showing login-success
+      if (selectedRole === 'admin') {
+        window.location.href = '/admin/school-login';
+        return;
+      }
       setCurrentScreen('login-success');
     }
   };
@@ -149,6 +154,14 @@ export function AuthSystem({ onLoginSuccess, initialPortal = null, onBackToPorta
     sessionStorage.removeItem('auth_session_id');
     sessionStorage.removeItem('auth_user_id');
     sessionStorage.removeItem('auth_temp_token');
+    
+    // For admin, redirect to school login instead of login-success
+    if (selectedRole === 'admin') {
+      // Redirect to school login page
+      window.location.href = '/admin/school-login';
+      return;
+    }
+    
     setCurrentScreen('login-success');
   };
 

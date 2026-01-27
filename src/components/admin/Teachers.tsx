@@ -335,6 +335,16 @@ export function Teachers() {
   const fetchTeachers = async () => {
     setIsLoading(true);
     try {
+      // Check if school ID is available before making API call
+      const schoolId = schoolStorage.getSchoolId();
+      if (!schoolId) {
+        console.warn('No schoolId found, skipping teachers fetch');
+        toast.error('School ID not found. Please login to your school first.');
+        setIsLoading(false);
+        setTeachers([]);
+        return;
+      }
+      
       const response = await adminService.getTeachers();
       
       if (import.meta.env.DEV) {

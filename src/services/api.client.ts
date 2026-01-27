@@ -392,7 +392,12 @@ class ApiClient {
                               url.includes('/auth/verify-email');
         
         // Only logout if it's NOT an auth endpoint (means token expired on protected route)
-        if (!isAuthEndpoint) {
+        // Also skip logout if we're on portal selection page (user hasn't logged in yet)
+        const isPortalSelection = window.location.pathname === '/' || 
+                                  window.location.pathname === '/admin/login' ||
+                                  window.location.pathname.includes('/admin/school-login');
+        
+        if (!isAuthEndpoint && !isPortalSelection) {
           // Token expired or invalid - force logout
           console.warn('Token expired or invalid. Logging out user...');
           forceLogout('Your session has expired. Please login again.');
