@@ -267,6 +267,17 @@ export default function App() {
   };
 
   const getUserInfo = () => {
+    const user = authService.getCurrentUser();
+    
+    if (user) {
+      const fullName = `${user.firstName || ''} ${user.lastName || ''}`.trim() || user.email?.split('@')[0] || 'User';
+      return { 
+        name: fullName, 
+        email: user.email || 'No email' 
+      };
+    }
+    
+    // Fallback to mock data if user not found
     switch (userType) {
       case 'admin': return { name: 'Admin User', email: 'admin@edumanage.com' };
       case 'teacher': return { name: 'Dr. Sarah Mitchell', email: 'sarah.m@school.com' };

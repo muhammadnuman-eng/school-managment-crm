@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Package, Search, Plus, Edit, Trash2, Eye, AlertCircle, Loader2 } from 'lucide-react';
+import { Package, Search, Plus, Edit, Trash2, Eye, AlertCircle, Loader2, MoreVertical } from 'lucide-react';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
 import { Card } from '../ui/card';
@@ -23,6 +23,8 @@ import {
 import { Label } from '../ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../ui/tabs';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '../ui/dropdown-menu';
+import { Switch } from '../ui/switch';
 import { toast } from 'sonner@2.0.3';
 import { adminService } from '../../services';
 import { schoolStorage } from '../../utils/storage';
@@ -58,6 +60,7 @@ export function OfficeInventory() {
   const [submittingSupplier, setSubmittingSupplier] = useState(false);
   const [submittingEdit, setSubmittingEdit] = useState(false);
   const [loadingItem, setLoadingItem] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
   const [selectedStatus, setSelectedStatus] = useState<string>('all');
@@ -401,6 +404,63 @@ export function OfficeInventory() {
     }
   };
 
+  // Handle Delete Item
+  const handleDeleteItem = async (item: InventoryItem) => {
+    if (!confirm(`Are you sure you want to delete item "${item.itemName}"? This action cannot be undone.`)) {
+      return;
+    }
+
+    try {
+      setDeleting(true);
+      await adminService.deleteInventoryItem(item.id);
+      toast.success('Item Deleted', {
+        description: `Item "${item.itemName}" has been deleted successfully`,
+      });
+      
+      // Remove from local state
+      setItems(items.filter(i => i.id !== item.id));
+      
+      // Refresh overview
+      const overviewResponse = await adminService.getInventoryOverview();
+      setOverview(overviewResponse);
+    } catch (error: any) {
+      console.error('Error deleting item:', error);
+      toast.error('Failed to delete item', {
+        description: error.message || 'Please try again later',
+      });
+    } finally {
+      setDeleting(false);
+    }
+  };
+
+  // Handle Status Toggle
+  const handleStatusToggle = async (item: InventoryItem) => {
+    try {
+      const currentStatus = item.status || 'AVAILABLE';
+      // Toggle between AVAILABLE and OUT_OF_STOCK
+      const newStatus: ItemStatus = (currentStatus === 'AVAILABLE' || currentStatus === 'IN_STOCK') ? 'OUT_OF_STOCK' : 'AVAILABLE';
+      
+      await adminService.updateInventoryItem(item.id, { status: newStatus });
+      toast.success('Status Updated', {
+        description: `Item status updated to ${newStatus}`,
+      });
+      
+      // Update local state
+      setItems(items.map(i => 
+        i.id === item.id ? { ...i, status: newStatus } : i
+      ));
+      
+      // Refresh overview
+      const overviewResponse = await adminService.getInventoryOverview();
+      setOverview(overviewResponse);
+    } catch (error: any) {
+      console.error('Error updating status:', error);
+      toast.error('Failed to update status', {
+        description: error.message || 'Please try again later',
+      });
+    }
+  };
+
   // Filter items based on search query
   const filteredItems = items.filter((item) => {
     const matchesSearch =
@@ -604,44 +664,54 @@ export function OfficeInventory() {
                         <TableCell className="text-gray-700 dark:text-gray-300 text-sm">{item.unitOfMeasurement}</TableCell>
                         <TableCell className="text-gray-700 dark:text-gray-300">{item.location || 'N/A'}</TableCell>
                         <TableCell>
-                          <Badge
-                            variant="default"
-                            className={
-                              item.status === 'AVAILABLE' || item.status === 'IN_STOCK'
-                                ? 'bg-green-100 text-green-700'
-                                : item.status === 'LOW_STOCK'
-                                ? 'bg-orange-100 text-orange-700'
-                                : 'bg-red-100 text-red-700'
-                            }
-                          >
-                            {getStatusDisplay(item.status)}
-                          </Badge>
+                          <div className="flex items-center gap-2">
+                            <Switch
+                              checked={item.status === 'AVAILABLE' || item.status === 'IN_STOCK'}
+                              onCheckedChange={() => handleStatusToggle(item)}
+                            />
+                            <Badge
+                              variant="default"
+                              className={
+                                item.status === 'AVAILABLE' || item.status === 'IN_STOCK'
+                                  ? 'bg-green-100 text-green-700'
+                                  : item.status === 'LOW_STOCK'
+                                  ? 'bg-orange-100 text-orange-700'
+                                  : 'bg-red-100 text-red-700'
+                              }
+                            >
+                              {getStatusDisplay(item.status)}
+                            </Badge>
+                          </div>
                         </TableCell>
                         <TableCell className="text-gray-700 dark:text-gray-300 text-sm">
                           {item.updatedAt ? new Date(item.updatedAt).toLocaleDateString() : 'N/A'}
                         </TableCell>
                         <TableCell className="text-right">
-                          <div className="flex items-center justify-end gap-2">
-                            <Button 
-                              variant="ghost" 
-                              size="icon"
-                              onClick={() => handleViewItem(item.id)}
-                              disabled={loadingItem}
-                            >
-                              <Eye className="w-4 h-4" />
-                            </Button>
-                            <Button 
-                              variant="ghost" 
-                              size="icon"
-                              onClick={() => handleEditItem(item.id)}
-                              disabled={loadingItem}
-                            >
-                              <Edit className="w-4 h-4" />
-                            </Button>
-                            <Button variant="ghost" size="icon">
-                              <Trash2 className="w-4 h-4 text-red-600" />
-                            </Button>
-                          </div>
+                          <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                              <Button variant="ghost" size="icon" className="h-8 w-8">
+                                <MoreVertical className="w-4 h-4" />
+                              </Button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="end">
+                              <DropdownMenuItem onClick={() => handleViewItem(item.id)} disabled={loadingItem}>
+                                <Eye className="w-4 h-4 mr-2" />
+                                View
+                              </DropdownMenuItem>
+                              <DropdownMenuItem onClick={() => handleEditItem(item.id)} disabled={loadingItem}>
+                                <Edit className="w-4 h-4 mr-2" />
+                                Edit
+                              </DropdownMenuItem>
+                              <DropdownMenuItem 
+                                className="text-red-600" 
+                                onClick={() => handleDeleteItem(item)}
+                                disabled={deleting}
+                              >
+                                <Trash2 className="w-4 h-4 mr-2" />
+                                Delete
+                              </DropdownMenuItem>
+                            </DropdownMenuContent>
+                          </DropdownMenu>
                         </TableCell>
                       </TableRow>
                     ))

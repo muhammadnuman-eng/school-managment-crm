@@ -1,3 +1,4 @@
+import { useState, useEffect } from 'react';
 import { 
   LayoutDashboard, 
   Users, 
@@ -22,6 +23,8 @@ import {
 } from 'lucide-react';
 import { motion } from 'motion/react';
 import { cn } from '../ui/utils';
+import { adminService } from '../../services';
+import { schoolStorage } from '../../utils/storage';
 
 interface SidebarProps {
   userType: 'admin' | 'teacher' | 'student';
@@ -71,9 +74,38 @@ const studentMenuItems = [
 ];
 
 export function Sidebar({ userType, currentPage, onNavigate, collapsed = false }: SidebarProps) {
+  const [schoolName, setSchoolName] = useState<string>('EduManage');
+  const [loading, setLoading] = useState(true);
+  
   const menuItems = userType === 'admin' ? adminMenuItems : 
                     userType === 'teacher' ? teacherMenuItems : 
                     studentMenuItems;
+
+  useEffect(() => {
+    const fetchSchoolName = async () => {
+      if (userType === 'admin') {
+        try {
+          const schoolId = schoolStorage.getSchoolId();
+          if (schoolId) {
+            setLoading(true);
+            const response = await adminService.getSchoolById(schoolId);
+            if (response.data && response.data.name) {
+              setSchoolName(response.data.name);
+            }
+          }
+        } catch (error: any) {
+          console.error('Error fetching school name:', error);
+          // Keep default "EduManage" if API fails
+        } finally {
+          setLoading(false);
+        }
+      } else {
+        setLoading(false);
+      }
+    };
+
+    fetchSchoolName();
+  }, [userType]);
 
   return (
     <aside className={cn(
@@ -87,7 +119,9 @@ export function Sidebar({ userType, currentPage, onNavigate, collapsed = false }
           </div>
           {!collapsed && (
             <div>
-              <h1 className="text-gray-900 dark:text-white">EduManage</h1>
+              <h1 className="text-gray-900 dark:text-white text-sm font-semibold truncate max-w-[180px]">
+                {loading ? 'Loading...' : schoolName}
+              </h1>
               <p className="text-xs text-gray-500 dark:text-gray-400 capitalize">{userType} Panel</p>
             </div>
           )}

@@ -52,6 +52,10 @@ export const API_ENDPOINTS = {
     addClass: '/admin/classes',
     academicYears: '/admin/classes/academic-years',
     teachers: '/admin/teachers',
+    schools: {
+      base: '/admin/schools',
+      getById: (id: string) => `/admin/schools/${id}`,
+    },
     
     // Attendance
     attendance: {
@@ -87,6 +91,14 @@ export const API_ENDPOINTS = {
         getById: (id: string) => `/admin/fees/expenses/${id}`,
         reportDownload: (format?: 'csv' | 'json') => `/admin/fees/expenses/report/download${format ? `?format=${format}` : ''}`,
       },
+    },
+    
+    // Notifications
+    notifications: {
+      base: '/admin/notifications',
+      unreadCount: '/admin/notifications/unread-count',
+      markAsRead: (id: string) => `/admin/notifications/${id}/read`,
+      markAllAsRead: '/admin/notifications/mark-all-read',
     },
     
     // Communication

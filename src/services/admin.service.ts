@@ -3682,6 +3682,80 @@ class AdminService {
 
     return response.data;
   }
+
+  /**
+   * Get User Notifications
+   */
+  async getNotifications(limit?: number): Promise<ApiResponse<any[]>> {
+    const endpoint = `${API_ENDPOINTS.admin.notifications.base}${limit ? `?limit=${limit}` : ''}`;
+    const response = await apiClient.get<any[]>(endpoint);
+
+    if (import.meta.env.DEV) {
+      console.log('Get Notifications API Response:', response);
+    }
+
+    return response;
+  }
+
+  /**
+   * Get Unread Notifications Count
+   */
+  async getUnreadNotificationsCount(): Promise<ApiResponse<{ unreadCount: number }>> {
+    const endpoint = API_ENDPOINTS.admin.notifications.unreadCount;
+    const response = await apiClient.get<{ unreadCount: number }>(endpoint);
+
+    if (import.meta.env.DEV) {
+      console.log('Get Unread Notifications Count API Response:', response);
+    }
+
+    return response;
+  }
+
+  /**
+   * Mark Notification as Read
+   */
+  async markNotificationAsRead(notificationId: string): Promise<ApiResponse<void>> {
+    const endpoint = API_ENDPOINTS.admin.notifications.markAsRead(notificationId);
+    const response = await apiClient.patch<void>(endpoint);
+
+    if (import.meta.env.DEV) {
+      console.log('Mark Notification as Read API Response:', response);
+    }
+
+    return response;
+  }
+
+  /**
+   * Mark All Notifications as Read
+   */
+  async markAllNotificationsAsRead(): Promise<ApiResponse<{ updatedCount: number }>> {
+    const endpoint = API_ENDPOINTS.admin.notifications.markAllAsRead;
+    const response = await apiClient.patch<{ updatedCount: number }>(endpoint);
+
+    if (import.meta.env.DEV) {
+      console.log('Mark All Notifications as Read API Response:', response);
+    }
+
+    return response;
+  }
+
+  /**
+   * Get School by ID
+   */
+  async getSchoolById(schoolId: string): Promise<ApiResponse<any>> {
+    const endpoint = API_ENDPOINTS.admin.schools.getById(schoolId);
+    const response = await apiClient.get<any>(endpoint);
+
+    if (import.meta.env.DEV) {
+      console.log('Get School by ID API Response:', { schoolId, response });
+    }
+
+    if (!response.data) {
+      throw new Error('Invalid response from server: No data received');
+    }
+
+    return response;
+  }
 }
 
 // Export singleton instance

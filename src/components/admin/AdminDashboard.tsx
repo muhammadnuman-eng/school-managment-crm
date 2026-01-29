@@ -436,45 +436,70 @@ export function AdminDashboard() {
                   )}
                 </p>
               </div>
-              <ResponsiveContainer width="100%" height={240}>
-                <PieChart key={`distribution-${classDistribution.length}-${isLoading}`}>
-                  <Pie
-                    data={classDistribution}
-                    cx="50%"
-                    cy="50%"
-                    innerRadius={60}
-                    outerRadius={90}
-                    paddingAngle={5}
-                    dataKey="value"
-                  >
-                    {classDistribution.map((entry, index) => (
-                      <Cell key={`cell-${index}`} fill={entry.color} />
+              {classDistribution.length > 0 ? (
+                <>
+                  <ResponsiveContainer width="100%" height={240}>
+                    <BarChart data={classDistribution} key={`distribution-${classDistribution.length}-${isLoading}`}>
+                      <CartesianGrid strokeDasharray="3 3" className="stroke-gray-200 dark:stroke-gray-700" opacity={0.5} />
+                      <XAxis
+                        dataKey="name"
+                        className="text-sm"
+                        stroke="#9CA3AF"
+                        tick={{ fill: '#6B7280', fontSize: 12 }}
+                        angle={-45}
+                        textAnchor="end"
+                        height={80}
+                      />
+                      <YAxis
+                        stroke="#9CA3AF"
+                        tick={{ fill: '#6B7280' }}
+                        domain={[0, 'auto']}
+                        tickFormatter={(value) => {
+                          if (value >= 1000) return `${(value / 1000).toFixed(0)}K`;
+                          return value.toString();
+                        }}
+                      />
+                      <Tooltip
+                        contentStyle={{
+                          backgroundColor: '#fff',
+                          border: 'none',
+                          borderRadius: '12px',
+                          boxShadow: '0 10px 40px rgba(0,0,0,0.1)'
+                        }}
+                        formatter={(value: any) => [value, 'Students']}
+                      />
+                      <Bar 
+                        dataKey="value" 
+                        radius={[8, 8, 0, 0]}
+                      >
+                        {classDistribution.map((entry, index) => (
+                          <Cell key={`cell-${index}`} fill={entry.color} />
+                        ))}
+                      </Bar>
+                    </BarChart>
+                  </ResponsiveContainer>
+                  <div className="grid grid-cols-2 gap-3 mt-4">
+                    {classDistribution.map((item, index) => (
+                      <div key={index} className="flex items-center gap-2">
+                        <div
+                          className="w-3 h-3 rounded-full shadow-sm"
+                          style={{ backgroundColor: item.color }}
+                        ></div>
+                        <div>
+                          <p className="text-xs text-gray-600 dark:text-gray-400">{item.name}</p>
+                          <p className="text-sm text-gray-900 dark:text-white font-medium">{item.value}</p>
+                        </div>
+                      </div>
                     ))}
-                  </Pie>
-                  <Tooltip
-                    contentStyle={{
-                      backgroundColor: '#fff',
-                      border: 'none',
-                      borderRadius: '12px',
-                      boxShadow: '0 10px 40px rgba(0,0,0,0.1)'
-                    }}
-                  />
-                </PieChart>
-              </ResponsiveContainer>
-              <div className="grid grid-cols-2 gap-3 mt-4">
-                {classDistribution.map((item, index) => (
-                  <div key={index} className="flex items-center gap-2">
-                    <div
-                      className="w-3 h-3 rounded-full shadow-sm"
-                      style={{ backgroundColor: item.color }}
-                    ></div>
-                    <div>
-                      <p className="text-xs text-gray-600 dark:text-gray-400">{item.name}</p>
-                      <p className="text-sm text-gray-900 dark:text-white font-medium">{item.value}</p>
-                    </div>
                   </div>
-                ))}
-              </div>
+                </>
+              ) : (
+                <div className="flex items-center justify-center h-60 text-gray-500 dark:text-gray-400">
+                  <div className="text-center">
+                    <p className="text-sm">No class distribution data available</p>
+                  </div>
+                </div>
+              )}
             </div>
           </Card>
         </div>
