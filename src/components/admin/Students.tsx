@@ -11,6 +11,7 @@ import { adminService } from '../../services';
 import { AddStudentRequest, UpdateStudentRequest, Student as StudentType } from '../../types/student.types';
 import { getUserFriendlyError } from '../../utils/errors';
 import { ApiException } from '../../utils/errors';
+import { schoolStorage } from '../../utils/storage';
 import {
   Table,
   TableBody,
@@ -94,6 +95,11 @@ export function Students() {
   useEffect(() => {
     fetchStudents();
   }, [currentViewClass]); // Refetch when class view changes
+
+  // Fetch available classes on component mount
+  useEffect(() => {
+    fetchAvailableClasses();
+  }, []); // Run once on mount
 
   const fetchStudents = async () => {
     setIsLoading(true);
@@ -468,32 +474,52 @@ export function Students() {
           setClassUUID(classData.uuid);
           setAvailableSections(classData.sections);
 
-          // If in edit mode and sectionId is already set, try to preserve it
-          if (isEditMode && sectionId) {
-            // Check if current sectionId is valid in new sections
-            const isValid = classData.sections.some(s => s.id === sectionId || s.name === sectionId);
-            if (!isValid) {
-              // Try to find section by name from selectedStudent
-              if (selectedStudent?.section) {
-                const sectionByName = classData.sections.find(s => s.name === selectedStudent.section);
-                if (sectionByName) {
-                  setSectionId(sectionByName.id);
-                } else {
-                  // If section name matches a section ID, use it
-                  const sectionById = classData.sections.find(s => s.id === selectedStudent.section);
-                  if (sectionById) {
-                    setSectionId(sectionById.id);
-                  } else {
-                    setSectionId('');
+          // If in edit mode, try to set section from selectedStudent
+          if (isEditMode && selectedStudent) {
+            const sectionName = selectedStudent.section || 
+                               (selectedStudent as any)?.sectionName || 
+                               (selectedStudent as any)?.currentSection?.sectionName ||
+                               (selectedStudent as any)?.currentSectionName || '';
+            
+            if (sectionName) {
+              // Try to find section by name in loaded sections
+              const section = classData.sections.find(s => 
+                s.name === sectionName || 
+                s.id === sectionName ||
+                s.name?.toLowerCase() === sectionName?.toLowerCase()
+              );
+              
+              if (section) {
+                setSectionId(section.id);
+                if (import.meta.env.DEV) {
+                  console.log('Section set from selectedStudent in edit mode:', {
+                    sectionName,
+                    sectionId: section.id,
+                  });
+                }
+              } else if (sectionId) {
+                // Check if current sectionId is still valid
+                const isValid = classData.sections.some(s => s.id === sectionId || s.name === sectionId);
+                if (!isValid) {
+                  // If not valid, try using section name directly
+                  setSectionId(sectionName);
+                  if (import.meta.env.DEV) {
+                    console.log('Section name used directly (not found in sections):', sectionName);
                   }
                 }
               } else {
+                // No sectionId set yet, use section name
+                setSectionId(sectionName);
+              }
+            } else if (sectionId) {
+              // If no section name but sectionId exists, validate it
+              const isValid = classData.sections.some(s => s.id === sectionId || s.name === sectionId);
+              if (!isValid) {
                 setSectionId('');
               }
             }
-            // If sectionId is valid, keep it
           } else {
-            // Reset sectionId when class changes (validate it's still valid)
+            // Not in edit mode - reset sectionId when class changes (validate it's still valid)
             setSectionId(prevSectionId => {
               if (prevSectionId) {
                 const isValid = classData.sections.some(s => s.id === prevSectionId || s.name === prevSectionId);
@@ -537,7 +563,7 @@ export function Students() {
     return () => {
       isMounted = false;
     };
-  }, [selectedClass, showAddDialog]);
+  }, [selectedClass, showAddDialog, isEditMode, selectedStudent, sectionId]);
 
   // Available classes - fetched from API
   const [availableClasses, setAvailableClasses] = useState<string[]>([]);
@@ -667,13 +693,29 @@ export function Students() {
       if (response.data) {
         const studentData: any = response.data;
 
+        if (import.meta.env.DEV) {
+          console.log('Edit Student - Full Data:', {
+            studentData,
+            firstName: studentData.firstName,
+            lastName: studentData.lastName,
+            dateOfBirth: studentData.dateOfBirth,
+            phone: studentData.phone,
+            address: studentData.address,
+            class: studentData.class,
+            section: studentData.section,
+            parentPhone: studentData.parentPhone,
+          });
+        }
+
         setIsEditMode(true);
         setEditingStudentId(studentData.id || student.id);
         setSelectedStudent(studentData);
 
-        // Set first and last name
-        setFirstName(studentData.firstName || student.firstName || '');
-        setLastName(studentData.lastName || student.lastName || '');
+        // Set first and last name - check multiple possible locations
+        const firstName = studentData.firstName || studentData.user?.firstName || student.firstName || '';
+        const lastName = studentData.lastName || studentData.user?.lastName || student.lastName || '';
+        setFirstName(firstName);
+        setLastName(lastName);
 
         // Set class - handle both Class X and Grade X formats, and lowercase formats like "grade3"
         const studentClass = studentData.class || studentData.className || studentData.currentClass?.className || student.class || '';
@@ -697,27 +739,52 @@ export function Students() {
           setSelectedClass(currentViewClass);
         }
 
-        // Set section - wait for class data to load, then set section
-        const sectionName = studentData.section || studentData.sectionName || studentData.currentSection?.sectionName || student.section || '';
-        if (sectionName) {
-          // Try to find section in available sections first
-          const section = availableSections.find(s => s.name === sectionName || s.id === sectionName);
-          if (section) {
-            setSectionId(section.id);
-          } else {
-            // If not found, set the section name as ID (might be a string like 'A', 'B', etc.)
-            setSectionId(sectionName);
+        // Store section name - will be set after class data loads
+        const sectionName = studentData.section || studentData.sectionName || studentData.currentSection?.sectionName || studentData.currentSectionName || student.section || '';
+        
+        // Set phone - check multiple possible locations
+        const phoneValue = studentData.phone || studentData.contact || studentData.user?.phone || student.phone || '';
+        setPhone(phoneValue);
+
+        // Set date of birth - handle multiple formats (ISO, Date object, YYYY-MM-DD)
+        let dobValue = '';
+        if (studentData.dateOfBirth) {
+          if (typeof studentData.dateOfBirth === 'string') {
+            if (studentData.dateOfBirth.includes('T')) {
+              // ISO format: convert to YYYY-MM-DD
+              dobValue = studentData.dateOfBirth.split('T')[0];
+            } else if (studentData.dateOfBirth.match(/^\d{4}-\d{2}-\d{2}$/)) {
+              // Already in YYYY-MM-DD format
+              dobValue = studentData.dateOfBirth;
+            } else {
+              // Try to parse other formats
+              const date = new Date(studentData.dateOfBirth);
+              if (!isNaN(date.getTime())) {
+                dobValue = date.toISOString().split('T')[0];
+              }
+            }
+          } else if (studentData.dateOfBirth instanceof Date) {
+            // Date object
+            dobValue = studentData.dateOfBirth.toISOString().split('T')[0];
           }
-        }
-
-        // Set phone
-        setPhone(studentData.phone || studentData.contact || studentData.user?.phone || student.phone || '');
-
-        // Set date of birth - handle ISO date format
-        let dobValue = studentData.dateOfBirth || studentData.dob || student.dateOfBirth || '';
-        if (dobValue && dobValue.includes('T')) {
-          // Convert ISO date to YYYY-MM-DD format for input field
-          dobValue = dobValue.split('T')[0];
+        } else if (studentData.dob) {
+          // Fallback to dob field
+          if (typeof studentData.dob === 'string') {
+            if (studentData.dob.includes('T')) {
+              dobValue = studentData.dob.split('T')[0];
+            } else {
+              dobValue = studentData.dob;
+            }
+          }
+        } else if (student.dateOfBirth) {
+          // Use student prop as fallback
+          if (typeof student.dateOfBirth === 'string') {
+            if (student.dateOfBirth.includes('T')) {
+              dobValue = student.dateOfBirth.split('T')[0];
+            } else {
+              dobValue = student.dateOfBirth;
+            }
+          }
         }
         setDob(dobValue);
 
@@ -725,11 +792,56 @@ export function Students() {
         const parentPhoneValue = studentData.parentPhone || studentData.emergencyContactPhone || studentData.user?.parentPhone || student.parentPhone || '';
         setParentPhone(parentPhoneValue);
 
-        // Set address
-        setAddress(studentData.address || student.address || '');
+        // Set address - check multiple possible locations
+        const addressValue = studentData.address || student.address || '';
+        setAddress(addressValue);
 
-        // Open dialog - useEffect will handle loading class data for the selected class
+        // Open dialog first
         setShowAddDialog(true);
+
+        // Wait a bit for dialog to open, then load class data and set section
+        // This ensures the useEffect runs and class data is loaded before we set section
+        setTimeout(async () => {
+          try {
+            // Load class data for the selected class
+            if (normalizedClass) {
+              const classData = await loadClassData(normalizedClass);
+              if (classData && sectionName) {
+                // Find section by name in the loaded sections
+                const section = classData.sections.find(s => 
+                  s.name === sectionName || 
+                  s.id === sectionName ||
+                  s.name?.toLowerCase() === sectionName?.toLowerCase()
+                );
+                if (section) {
+                  setSectionId(section.id);
+                  if (import.meta.env.DEV) {
+                    console.log('Section set after class data load:', {
+                      sectionName,
+                      sectionId: section.id,
+                      availableSections: classData.sections,
+                    });
+                  }
+                } else {
+                  // If section not found, try using section name directly
+                  setSectionId(sectionName);
+                  if (import.meta.env.DEV) {
+                    console.log('Section name used directly (not found in class sections):', sectionName);
+                  }
+                }
+              }
+            } else if (sectionName) {
+              // If no class, just set section name directly
+              setSectionId(sectionName);
+            }
+          } catch (error) {
+            console.error('Error loading class data for edit:', error);
+            // Fallback: set section name directly
+            if (sectionName) {
+              setSectionId(sectionName);
+            }
+          }
+        }, 100);
       } else {
         // Fallback to local data
         setIsEditMode(true);
@@ -746,16 +858,70 @@ export function Students() {
           const matchedClass = classMatch[1].replace(/^Grade /i, 'Class ');
           setSelectedClass(matchedClass);
         } else {
-          setSelectedClass(student.class);
+          setSelectedClass(student.class || currentViewClass);
         }
 
+        // Set phone
         setPhone(student.phone || '');
-        setDob(student.dateOfBirth || '');
+
+        // Set date of birth - handle format conversion
+        let dobValue = '';
+        if (student.dateOfBirth) {
+          if (typeof student.dateOfBirth === 'string') {
+            if (student.dateOfBirth.includes('T')) {
+              dobValue = student.dateOfBirth.split('T')[0];
+            } else if (student.dateOfBirth.match(/^\d{4}-\d{2}-\d{2}$/)) {
+              dobValue = student.dateOfBirth;
+            } else {
+              const date = new Date(student.dateOfBirth);
+              if (!isNaN(date.getTime())) {
+                dobValue = date.toISOString().split('T')[0];
+              }
+            }
+          }
+        }
+        setDob(dobValue);
+
+        // Set parent phone
         setParentPhone(student.parentPhone || '');
+
+        // Set address
         setAddress(student.address || '');
 
-        // Open dialog - useEffect will handle loading class data for the selected class
+        // Store section name for later setting
+        const sectionName = student.section || '';
+
+        // Open dialog first
         setShowAddDialog(true);
+
+        // Wait for dialog to open, then load class data and set section
+        setTimeout(async () => {
+          try {
+            const normalizedClass = classMatch ? classMatch[1].replace(/^Grade /i, 'Class ') : student.class;
+            if (normalizedClass) {
+              const classData = await loadClassData(normalizedClass);
+              if (classData && sectionName) {
+                const section = classData.sections.find(s => 
+                  s.name === sectionName || 
+                  s.id === sectionName ||
+                  s.name?.toLowerCase() === sectionName?.toLowerCase()
+                );
+                if (section) {
+                  setSectionId(section.id);
+                } else {
+                  setSectionId(sectionName);
+                }
+              }
+            } else if (sectionName) {
+              setSectionId(sectionName);
+            }
+          } catch (error) {
+            console.error('Error loading class data for edit (fallback):', error);
+            if (sectionName) {
+              setSectionId(sectionName);
+            }
+          }
+        }, 100);
       }
     } catch (error: any) {
       console.error('Error fetching student for edit:', error);
@@ -775,16 +941,70 @@ export function Students() {
         const matchedClass = classMatch[1].replace(/^Grade /i, 'Class ');
         setSelectedClass(matchedClass);
       } else {
-        setSelectedClass(student.class);
+        setSelectedClass(student.class || currentViewClass);
       }
 
-      setPhone(student.phone);
-      setDob(student.dateOfBirth || '');
+      // Set phone
+      setPhone(student.phone || '');
+
+      // Set date of birth - handle format conversion
+      let dobValue = '';
+      if (student.dateOfBirth) {
+        if (typeof student.dateOfBirth === 'string') {
+          if (student.dateOfBirth.includes('T')) {
+            dobValue = student.dateOfBirth.split('T')[0];
+          } else if (student.dateOfBirth.match(/^\d{4}-\d{2}-\d{2}$/)) {
+            dobValue = student.dateOfBirth;
+          } else {
+            const date = new Date(student.dateOfBirth);
+            if (!isNaN(date.getTime())) {
+              dobValue = date.toISOString().split('T')[0];
+            }
+          }
+        }
+      }
+      setDob(dobValue);
+
+      // Set parent phone
       setParentPhone(student.parentPhone || '');
+
+      // Set address
       setAddress(student.address || '');
 
-      // Open dialog - useEffect will handle loading class data for the selected class
+      // Store section name for later setting
+      const sectionName = student.section || '';
+
+      // Open dialog first
       setShowAddDialog(true);
+
+      // Wait for dialog to open, then load class data and set section
+      setTimeout(async () => {
+        try {
+          const normalizedClass = classMatch ? classMatch[1].replace(/^Grade /i, 'Class ') : student.class;
+          if (normalizedClass) {
+            const classData = await loadClassData(normalizedClass);
+            if (classData && sectionName) {
+              const section = classData.sections.find(s => 
+                s.name === sectionName || 
+                s.id === sectionName ||
+                s.name?.toLowerCase() === sectionName?.toLowerCase()
+              );
+              if (section) {
+                setSectionId(section.id);
+              } else {
+                setSectionId(sectionName);
+              }
+            }
+          } else if (sectionName) {
+            setSectionId(sectionName);
+          }
+        } catch (err) {
+          console.error('Error loading class data for edit (error catch):', err);
+          if (sectionName) {
+            setSectionId(sectionName);
+          }
+        }
+      }, 100);
     }
   };
 
@@ -1171,17 +1391,29 @@ export function Students() {
       // Don't modify the class name - send it exactly as user selected
       const backendClassName = finalClassName;
 
+      // Get section name from sectionId (sectionId might be UUID or name)
+      // Backend expects section name (e.g., "A", "B") not UUID
+      let sectionName = trimmedSectionId;
+      if (trimmedSectionId) {
+        const selectedSection = availableSections.find(s => s.id === trimmedSectionId || s.name === trimmedSectionId);
+        if (selectedSection) {
+          sectionName = selectedSection.name; // Use section name, not UUID
+        }
+      }
+
       // Prepare request data - use trimmed values
       // IMPORTANT: className is REQUIRED and must be the exact class selected by user
+      // IMPORTANT: currentClassId is REQUIRED by backend when section exists in multiple classes
       const requestData: AddStudentRequest = {
         firstName: trimmedFirstName,
         lastName: trimmedLastName,
         dateOfBirth: trimmedDob,
         address: trimmedAddress,
         phone: trimmedPhone,
-        currentSectionId: trimmedSectionId, // Backend expects 'currentSectionId'
+        currentSectionId: sectionName, // Backend expects section name (e.g., "A", "B"), not UUID
         parentPhone: parentPhone?.trim() || undefined,
         className: backendClassName, // REQUIRED: Exact class selected by user (e.g., "Class 4", "Class 6")
+        currentClassId: backendClassName, // REQUIRED: Backend expects this field with class name (e.g., "Class 3")
         // Include classId only if we have a valid UUID for the selected class
         ...(finalClassUUID && finalClassUUID.trim() && { classId: finalClassUUID.trim() }),
       };
@@ -1663,7 +1895,7 @@ export function Students() {
           handleCloseDialog(false);
         }
       }} modal={true}>
-        <DialogContent className="max-w-2xl max-h-[90vh] overflow-visible" onPointerDownOutside={(e) => {
+        <DialogContent className="max-w-2xl max-h-[90vh] flex flex-col" onPointerDownOutside={(e) => {
           // Don't close when clicking on Select dropdown
           const target = e.target as HTMLElement;
           if (target.closest('[data-slot="select-content"]') || target.closest('[data-slot="select-trigger"]')) {
@@ -1674,7 +1906,7 @@ export function Students() {
             <DialogTitle>{isEditMode ? 'Edit Student' : 'Add New Student'}</DialogTitle>
             <DialogDescription>{isEditMode ? 'Update the student details below' : 'Fill in the student details below'}</DialogDescription>
           </DialogHeader>
-          <div className="grid grid-cols-2 gap-4 py-4 max-h-[calc(90vh-120px)] overflow-y-auto overflow-x-visible">
+          <div className="grid grid-cols-2 gap-4 py-4 flex-1 overflow-y-auto overflow-x-visible min-h-0">
             <div className="space-y-2">
               <Label htmlFor="firstName">First Name *</Label>
               <Input
@@ -1859,7 +2091,7 @@ export function Students() {
               />
             </div>
           </div>
-          <DialogFooter>
+          <DialogFooter className="mt-4 flex-shrink-0">
             <Button variant="outline" onClick={handleCloseDialogDirect} disabled={isAddingOrUpdating}>
               Cancel
             </Button>

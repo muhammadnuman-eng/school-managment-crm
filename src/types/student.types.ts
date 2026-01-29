@@ -52,10 +52,11 @@ export interface AddStudentRequest {
   dateOfBirth: string;
   address: string;
   phone: string;
-  currentSectionId: string; // Backend expects 'currentSectionId' not 'sectionId'
+  currentSectionId: string; // Backend expects 'currentSectionId' not 'sectionId' - should be section name (e.g., "A", "B")
   parentPhone?: string;
   className?: string; // Class name (e.g., "Grade 10") - required by backend
   classId?: string; // Class ID/UUID - optional, can be used instead of className
+  currentClassId?: string; // Class name (e.g., "Class 3") - required by backend when section exists in multiple classes
 }
 
 /**

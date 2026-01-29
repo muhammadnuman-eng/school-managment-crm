@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { X, ChevronLeft, ChevronRight, Calendar, Plus, Trash2 } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Calendar, Plus, Trash2 } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '../../ui/dialog';
 import { Button } from '../../ui/button';
 import { Input } from '../../ui/input';
@@ -37,6 +37,7 @@ interface TimeSlot {
 export function CreateExam({ onClose, onSuccess }: CreateExamProps) {
   const [step, setStep] = useState(1);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isLoadingClasses, setIsLoadingClasses] = useState(true);
   const [classes, setClasses] = useState<ClassResponse[]>([]);
   const [academicYears, setAcademicYears] = useState<AcademicYear[]>([]);
   const [formData, setFormData] = useState({
@@ -69,12 +70,47 @@ export function CreateExam({ onClose, onSuccess }: CreateExamProps) {
   }, []);
 
   const fetchClasses = async () => {
+    setIsLoadingClasses(true);
     try {
       const response = await adminService.getClasses();
-      setClasses(response.classes || []);
+      
+      if (import.meta.env.DEV) {
+        console.log('Classes API Response:', {
+          response,
+          classes: response.classes,
+          classesLength: response.classes?.length,
+          firstClass: response.classes?.[0],
+        });
+      }
+      
+      // Transform classes to ensure proper field names
+      const classesList = (response.classes || []).map((cls: any) => ({
+        ...cls,
+        // Handle both 'name' and 'className' fields
+        name: cls.name || cls.className || 'Unnamed Class',
+        // Transform subjects to ensure proper field names
+        subjects: (cls.subjects || []).map((subj: any) => ({
+          id: subj.id || subj.subjectId || '',
+          name: subj.name || subj.subjectName || 'Unnamed Subject',
+          code: subj.code || subj.subjectCode || '',
+          teacher: subj.teacher,
+          teacherId: subj.teacherId,
+        })),
+      }));
+      
+      setClasses(classesList);
+      
+      if (classesList.length === 0) {
+        if (import.meta.env.DEV) {
+          console.warn('No classes found in response');
+        }
+      }
     } catch (error: any) {
       console.error('Error fetching classes:', error);
       toast.error('Failed to load classes');
+      setClasses([]);
+    } finally {
+      setIsLoadingClasses(false);
     }
   };
 
@@ -134,6 +170,42 @@ export function CreateExam({ onClose, onSuccess }: CreateExamProps) {
         return;
       }
 
+      // Helper function to get subject name by ID
+      const getSubjectName = (subjectId: string): string => {
+        if (!subjectId) {
+          console.warn('getSubjectName called with empty subjectId');
+          return 'Unknown Subject';
+        }
+        
+        for (const cls of classes) {
+          if (cls.subjects && cls.subjects.length > 0) {
+            const subject = cls.subjects.find((s: any) => {
+              const sId = s.id || s.subjectId || '';
+              return sId === subjectId;
+            });
+            if (subject) {
+              const name = subject.name || subject.subjectName || 'Unknown Subject';
+              if (import.meta.env.DEV) {
+                console.log('Found subject:', { subjectId, name, subject });
+              }
+              return name;
+            }
+          }
+        }
+        
+        console.warn('Subject not found for ID:', subjectId);
+        return 'Unknown Subject';
+      };
+
+      // Helper function to get class name by ID
+      const getClassName = (classId: string): string => {
+        const cls = classes.find(c => {
+          const cId = c.id || c.uuid || '';
+          return cId === classId;
+        });
+        return cls?.name || cls?.className || 'Unknown Class';
+      };
+
       const request: CreateExaminationRequest = {
         schoolId,
         examName: formData.examName,
@@ -146,27 +218,66 @@ export function CreateExam({ onClose, onSuccess }: CreateExamProps) {
           classId,
           sectionId: undefined, // Can be enhanced to select specific sections
         })),
-        examSubjects: selectedSubjects.map(subjectId => ({
-          subjectId,
-          totalMarks: 100, // Default, can be made configurable
-          passingMarks: 40,
-          weightage: 1,
-        })),
-        examSchedules: timeSlots.filter(slot => slot.date && slot.startTime && slot.endTime).map(slot => ({
-          classId: slot.class,
-          sectionId: undefined,
-          subjectId: slot.subject,
-          examDate: slot.date,
-          startTime: slot.startTime,
-          endTime: slot.endTime,
-          roomNumber: slot.room || undefined,
-        })),
+        examSubjects: selectedSubjects.map(subjectId => {
+          const subjectName = getSubjectName(subjectId);
+          const subjectData: any = {
+            subjectId,
+            subjectName, // Backend requires this
+            totalMarks: 100, // Default, can be made configurable
+          };
+          return subjectData;
+        }),
+        examSchedules: timeSlots
+          .filter(slot => {
+            // Only include slots with all required fields
+            const isValid = slot.date && slot.startTime && slot.endTime && slot.subject && slot.class;
+            if (!isValid && import.meta.env.DEV) {
+              console.warn('Invalid time slot filtered out:', slot);
+            }
+            return isValid;
+          })
+          .map(slot => {
+            const subjectName = getSubjectName(slot.subject);
+            const className = getClassName(slot.class);
+            
+            if (import.meta.env.DEV) {
+              console.log('Creating exam schedule:', {
+                classId: slot.class,
+                className,
+                subjectId: slot.subject,
+                subjectName,
+                examDate: slot.date,
+              });
+            }
+            
+            return {
+              classId: slot.class,
+              className, // Include for reference
+              sectionId: undefined,
+              subjectId: slot.subject,
+              subjectName, // Backend requires this
+              examDate: slot.date,
+              startTime: slot.startTime,
+              endTime: slot.endTime,
+              roomNumber: slot.room || undefined,
+            };
+          }),
         createdBy,
       };
 
+      if (import.meta.env.DEV) {
+        console.log('Creating examination with request:', {
+          ...request,
+          examSubjects: request.examSubjects?.map(s => ({ subjectId: s.subjectId, subjectName: s.subjectName, totalMarks: s.totalMarks })),
+          examSchedules: request.examSchedules?.map(s => ({ classId: s.classId, subjectId: s.subjectId, subjectName: s.subjectName, examDate: s.examDate })),
+        });
+      }
+
       await adminService.createExamination(request);
       toast.success('Examination scheduled successfully!');
+      setIsSubmitting(false);
       onSuccess();
+      onClose(); // Close the dialog after successful creation
     } catch (error: any) {
       console.error('Error creating examination:', error);
       let errorMessage = 'Failed to create examination';
@@ -174,17 +285,39 @@ export function CreateExam({ onClose, onSuccess }: CreateExamProps) {
         errorMessage = getUserFriendlyError(error);
       }
       toast.error(errorMessage);
-    } finally {
       setIsSubmitting(false);
     }
   };
 
   const toggleClass = (classId: string) => {
-    setSelectedClasses(prev =>
-      prev.includes(classId)
-        ? prev.filter(id => id !== classId)
-        : [...prev, classId]
-    );
+    if (!classId) {
+      console.warn('toggleClass called with empty classId');
+      return;
+    }
+
+    const isCurrentlySelected = selectedClasses.includes(classId);
+    
+    if (isCurrentlySelected) {
+      // Class is being deselected, remove its subjects from selection
+      const classToRemove = classes.find(c => {
+        const cId = c.id || c.uuid || '';
+        return cId === classId;
+      });
+      
+      if (classToRemove?.subjects) {
+        const subjectIdsToRemove = classToRemove.subjects
+          .map(s => s.id)
+          .filter(id => id && id.trim() !== ''); // Filter out empty ids
+        if (subjectIdsToRemove.length > 0) {
+          setSelectedSubjects(prev => prev.filter(id => !subjectIdsToRemove.includes(id)));
+        }
+      }
+      // Remove class from selection
+      setSelectedClasses(prev => prev.filter(id => id !== classId));
+    } else {
+      // Add class to selection
+      setSelectedClasses(prev => [...prev, classId]);
+    }
   };
 
   const toggleSubject = (subjectId: string) => {
@@ -222,16 +355,11 @@ export function CreateExam({ onClose, onSuccess }: CreateExamProps) {
     <Dialog open={true} onOpenChange={onClose}>
       <DialogContent className="max-w-4xl max-h-[90vh]">
         <DialogHeader>
-          <div className="flex items-center justify-between">
-            <div>
-              <DialogTitle className="text-2xl">Schedule New Examination</DialogTitle>
-              <DialogDescription>
-                Step {step} of 3
-              </DialogDescription>
-            </div>
-            <Button variant="ghost" size="icon" onClick={onClose}>
-              <X className="w-5 h-5" />
-            </Button>
+          <div>
+            <DialogTitle className="text-2xl">Schedule New Examination</DialogTitle>
+            <DialogDescription>
+              Step {step} of 3
+            </DialogDescription>
           </div>
           
           {/* Progress Indicator */}
@@ -354,23 +482,53 @@ export function CreateExam({ onClose, onSuccess }: CreateExamProps) {
                     <Label className="mb-3 block">
                       Classes <span className="text-red-500">*</span>
                     </Label>
-                    <div className="space-y-2 max-h-64 overflow-y-auto p-4 bg-gray-50 dark:bg-gray-800 rounded-lg">
-                      {classes.map((cls) => (
-                        <div key={cls.id} className="flex items-center space-x-2">
-                          <Checkbox
-                            id={cls.id}
-                            checked={selectedClasses.includes(cls.id)}
-                            onCheckedChange={() => toggleClass(cls.id)}
-                          />
-                          <label
-                            htmlFor={cls.id}
-                            className="text-sm text-gray-700 dark:text-gray-300 cursor-pointer flex-1"
-                          >
-                            {cls.name}
-                            <span className="text-xs text-gray-500 ml-2">({cls.students} students)</span>
-                          </label>
+                    <div className="space-y-2 max-h-64 overflow-y-auto p-4 bg-gray-50 dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700">
+                      {isLoadingClasses ? (
+                        <div className="text-center py-8">
+                          <p className="text-sm text-gray-500">Loading classes...</p>
                         </div>
-                      ))}
+                      ) : classes.length === 0 ? (
+                        <div className="text-center py-8">
+                          <p className="text-sm text-gray-500 mb-2">No classes available</p>
+                          <p className="text-xs text-gray-400">Please create classes first in the Classes section</p>
+                        </div>
+                      ) : (
+                        classes.map((cls) => {
+                          const classId = cls.id || cls.uuid || '';
+                          const className = cls.name || cls.className || 'Unnamed Class';
+                          
+                          if (import.meta.env.DEV && !classId) {
+                            console.warn('Class missing id:', cls);
+                          }
+                          
+                          return (
+                            <div key={classId || `class-${className}`} className="flex items-center space-x-2 py-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded px-2 transition-colors">
+                              <Checkbox
+                                id={`class-checkbox-${classId || className}`}
+                                checked={selectedClasses.includes(classId)}
+                                onCheckedChange={() => {
+                                  if (classId) {
+                                    toggleClass(classId);
+                                  } else {
+                                    console.warn('Cannot toggle class without id:', cls);
+                                  }
+                                }}
+                              />
+                              <label
+                                htmlFor={`class-checkbox-${classId || className}`}
+                                className="text-sm font-medium text-gray-700 dark:text-gray-300 cursor-pointer flex-1"
+                              >
+                                {className}
+                                {(cls.grade || cls.gradeLevel) && (
+                                  <span className="text-xs text-gray-500 ml-2">
+                                    (Grade {cls.grade || cls.gradeLevel})
+                                  </span>
+                                )}
+                              </label>
+                            </div>
+                          );
+                        })
+                      )}
                     </div>
                     <p className="text-xs text-gray-500 mt-2">
                       {selectedClasses.length} class{selectedClasses.length !== 1 ? 'es' : ''} selected
@@ -382,47 +540,95 @@ export function CreateExam({ onClose, onSuccess }: CreateExamProps) {
                     <Label className="mb-3 block">
                       Subjects <span className="text-red-500">*</span>
                     </Label>
-                    <div className="space-y-2 max-h-64 overflow-y-auto p-4 bg-gray-50 dark:bg-gray-800 rounded-lg">
+                    <div className="space-y-2 max-h-64 overflow-y-auto p-4 bg-gray-50 dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700">
                       {(() => {
+                        if (isLoadingClasses) {
+                          return (
+                            <div className="text-center py-8">
+                              <p className="text-sm text-gray-500">Loading...</p>
+                            </div>
+                          );
+                        }
+
+                        if (selectedClasses.length === 0) {
+                          return (
+                            <div className="text-center py-8">
+                              <p className="text-sm text-gray-500">Please select classes first to see subjects</p>
+                            </div>
+                          );
+                        }
+
                         // Extract unique subjects from selected classes
                         const allSubjects = new Map<string, { id: string; name: string; code: string }>();
-                        classes
-                          .filter(cls => selectedClasses.includes(cls.id))
-                          .forEach(cls => {
-                            cls.subjects?.forEach(subject => {
-                              if (!allSubjects.has(subject.id)) {
-                                allSubjects.set(subject.id, subject);
+                        const selectedClassesList = classes.filter(cls => {
+                          const classId = cls.id || cls.uuid || '';
+                          return selectedClasses.includes(classId);
+                        });
+
+                        if (import.meta.env.DEV) {
+                          console.log('Selected Classes for Subjects:', {
+                            selectedClasses,
+                            selectedClassesList,
+                            classesWithSubjects: selectedClassesList.filter(c => c.subjects && c.subjects.length > 0),
+                          });
+                        }
+
+                        selectedClassesList.forEach(cls => {
+                          if (cls.subjects && cls.subjects.length > 0) {
+                            cls.subjects.forEach((subject: any) => {
+                              const subjectId = subject.id || subject.subjectId || '';
+                              if (subjectId && !allSubjects.has(subjectId)) {
+                                allSubjects.set(subjectId, {
+                                  id: subjectId,
+                                  name: subject.name || subject.subjectName || 'Unnamed Subject',
+                                  code: subject.code || subject.subjectCode || '',
+                                  subjectName: subject.subjectName, // Keep for reference
+                                  subjectCode: subject.subjectCode, // Keep for reference
+                                });
                               }
                             });
-                          });
+                          }
+                        });
+
                         const uniqueSubjects = Array.from(allSubjects.values());
                         
-                        return uniqueSubjects.length > 0 ? (
-                          uniqueSubjects.map((subject) => (
-                            <div key={subject.id} className="flex items-center space-x-2">
+                        if (uniqueSubjects.length === 0) {
+                          return (
+                            <div className="text-center py-8">
+                              <p className="text-sm text-gray-500 mb-2">No subjects found</p>
+                              <p className="text-xs text-gray-400">Selected classes don't have subjects assigned</p>
+                            </div>
+                          );
+                        }
+
+                        return uniqueSubjects.map((subject) => {
+                          const subjectId = subject.id || '';
+                          const subjectName = subject.name || subject.subjectName || 'Unnamed Subject';
+                          const subjectCode = subject.code || subject.subjectCode || '';
+                          
+                          if (import.meta.env.DEV && !subjectId) {
+                            console.warn('Subject missing id:', subject);
+                          }
+                          
+                          return (
+                            <div key={subjectId} className="flex items-center space-x-2 py-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded px-2 transition-colors">
                               <Checkbox
-                                id={`subject-${subject.id}`}
-                                checked={selectedSubjects.includes(subject.id)}
-                                onCheckedChange={() => toggleSubject(subject.id)}
+                                id={`subject-${subjectId}`}
+                                checked={selectedSubjects.includes(subjectId)}
+                                onCheckedChange={() => toggleSubject(subjectId)}
                               />
                               <label
-                                htmlFor={`subject-${subject.id}`}
-                                className="text-sm text-gray-700 dark:text-gray-300 cursor-pointer flex-1"
+                                htmlFor={`subject-${subjectId}`}
+                                className="text-sm font-medium text-gray-700 dark:text-gray-300 cursor-pointer flex-1"
                               >
-                                {subject.name}
-                                {subject.code && (
-                                  <span className="text-xs text-gray-500 ml-2">({subject.code})</span>
+                                {subjectName}
+                                {subjectCode && (
+                                  <span className="text-xs text-gray-500 ml-2">({subjectCode})</span>
                                 )}
                               </label>
                             </div>
-                          ))
-                        ) : (
-                          <p className="text-sm text-gray-500 text-center py-4">
-                            {selectedClasses.length === 0 
-                              ? 'Please select classes first to see subjects'
-                              : 'No subjects found in selected classes'}
-                          </p>
-                        );
+                          );
+                        });
                       })()}
                     </div>
                     <p className="text-xs text-gray-500 mt-2">
@@ -444,95 +650,121 @@ export function CreateExam({ onClose, onSuccess }: CreateExamProps) {
                   </Button>
                 </div>
 
-                <div className="space-y-3">
+                <div className="space-y-4">
                   {timeSlots.map((slot, index) => (
-                    <div key={slot.id} className="p-4 bg-gray-50 dark:bg-gray-800 rounded-lg">
-                      <div className="grid grid-cols-7 gap-3">
-                        <div>
-                          <Label className="text-xs">Date</Label>
-                          <Input
-                            type="date"
-                            value={slot.date}
-                            onChange={(e) => updateTimeSlot(slot.id, 'date', e.target.value)}
-                            className="mt-1 text-sm"
-                          />
-                        </div>
-                        <div>
-                          <Label className="text-xs">Subject</Label>
-                          <Select value={slot.subject} onValueChange={(value) => updateTimeSlot(slot.id, 'subject', value)}>
-                            <SelectTrigger className="mt-1 text-sm">
-                              <SelectValue placeholder="Select" />
-                            </SelectTrigger>
-                            <SelectContent>
-                              {(() => {
-                                // Extract unique subjects from selected classes
-                                const allSubjects = new Map<string, { id: string; name: string }>();
-                                classes
-                                  .filter(cls => selectedClasses.includes(cls.id))
-                                  .forEach(cls => {
-                                    cls.subjects?.forEach(subject => {
-                                      if (!allSubjects.has(subject.id) && selectedSubjects.includes(subject.id)) {
-                                        allSubjects.set(subject.id, subject);
-                                      }
+                    <div key={slot.id} className="p-4 bg-gray-50 dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700">
+                      <div className="space-y-4">
+                        {/* Row 1: Date, Subject, Class */}
+                        <div className="grid grid-cols-3 gap-4">
+                          <div>
+                            <Label className="text-sm font-medium mb-2 block">Date</Label>
+                            <Input
+                              type="date"
+                              value={slot.date}
+                              onChange={(e) => updateTimeSlot(slot.id, 'date', e.target.value)}
+                              className="w-full"
+                            />
+                          </div>
+                          <div>
+                            <Label className="text-sm font-medium mb-2 block">Subject</Label>
+                            <Select value={slot.subject} onValueChange={(value) => updateTimeSlot(slot.id, 'subject', value)}>
+                              <SelectTrigger className="w-full">
+                                <SelectValue placeholder="Select subject" />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {(() => {
+                                  // Extract unique subjects from selected classes
+                                  const allSubjects = new Map<string, { id: string; name: string }>();
+                                  classes
+                                    .filter(cls => {
+                                      const classId = cls.id || cls.uuid || '';
+                                      return selectedClasses.includes(classId);
+                                    })
+                                    .forEach(cls => {
+                                      cls.subjects?.forEach((subject: any) => {
+                                        const subjectId = subject.id || subject.subjectId || '';
+                                        if (subjectId && !allSubjects.has(subjectId) && selectedSubjects.includes(subjectId)) {
+                                          allSubjects.set(subjectId, {
+                                            id: subjectId,
+                                            name: subject.name || subject.subjectName || 'Unnamed Subject',
+                                          });
+                                        }
+                                      });
                                     });
-                                  });
-                                return Array.from(allSubjects.values()).map(subject => (
-                                  <SelectItem key={subject.id} value={subject.id}>{subject.name}</SelectItem>
-                                ));
-                              })()}
-                            </SelectContent>
-                          </Select>
+                                  return Array.from(allSubjects.values()).map(subject => (
+                                    <SelectItem key={subject.id} value={subject.id}>{subject.name}</SelectItem>
+                                  ));
+                                })()}
+                              </SelectContent>
+                            </Select>
+                          </div>
+                          <div>
+                            <Label className="text-sm font-medium mb-2 block">Class</Label>
+                            <Select value={slot.class} onValueChange={(value) => updateTimeSlot(slot.id, 'class', value)}>
+                              <SelectTrigger className="w-full">
+                                <SelectValue placeholder="Select class" />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {classes
+                                  .filter(c => {
+                                    const classId = c.id || c.uuid || '';
+                                    return selectedClasses.includes(classId);
+                                  })
+                                  .map(cls => {
+                                    const classId = cls.id || cls.uuid || '';
+                                    const className = cls.name || cls.className || 'Unnamed Class';
+                                    return (
+                                      <SelectItem key={classId} value={classId}>{className}</SelectItem>
+                                    );
+                                  })}
+                              </SelectContent>
+                            </Select>
+                          </div>
                         </div>
-                        <div>
-                          <Label className="text-xs">Class</Label>
-                          <Select value={slot.class} onValueChange={(value) => updateTimeSlot(slot.id, 'class', value)}>
-                            <SelectTrigger className="mt-1 text-sm">
-                              <SelectValue placeholder="Select" />
-                            </SelectTrigger>
-                            <SelectContent>
-                              {classes.filter(c => selectedClasses.includes(c.id)).map(cls => (
-                                <SelectItem key={cls.id} value={cls.id}>{cls.name}</SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
-                        </div>
-                        <div>
-                          <Label className="text-xs">Start Time</Label>
-                          <Input
-                            type="time"
-                            value={slot.startTime}
-                            onChange={(e) => updateTimeSlot(slot.id, 'startTime', e.target.value)}
-                            className="mt-1 text-sm"
-                          />
-                        </div>
-                        <div>
-                          <Label className="text-xs">End Time</Label>
-                          <Input
-                            type="time"
-                            value={slot.endTime}
-                            onChange={(e) => updateTimeSlot(slot.id, 'endTime', e.target.value)}
-                            className="mt-1 text-sm"
-                          />
-                        </div>
-                        <div>
-                          <Label className="text-xs">Room</Label>
-                          <Input
-                            placeholder="101"
-                            value={slot.room}
-                            onChange={(e) => updateTimeSlot(slot.id, 'room', e.target.value)}
-                            className="mt-1 text-sm"
-                          />
-                        </div>
-                        <div className="flex items-end">
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => removeTimeSlot(slot.id)}
-                            disabled={timeSlots.length === 1}
-                            className="text-red-600 hover:text-red-700 hover:bg-red-50"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </Button>
+
+                        {/* Row 2: Start Time, End Time, Room + Delete Button */}
+                        <div className="grid grid-cols-3 gap-4">
+                          <div>
+                            <Label className="text-sm font-medium mb-2 block">Start Time</Label>
+                            <Input
+                              type="time"
+                              value={slot.startTime}
+                              onChange={(e) => updateTimeSlot(slot.id, 'startTime', e.target.value)}
+                              className="w-full"
+                            />
+                          </div>
+                          <div>
+                            <Label className="text-sm font-medium mb-2 block">End Time</Label>
+                            <Input
+                              type="time"
+                              value={slot.endTime}
+                              onChange={(e) => updateTimeSlot(slot.id, 'endTime', e.target.value)}
+                              className="w-full"
+                            />
+                          </div>
+                          <div className="flex gap-2">
+                            <div className="flex-1">
+                              <Label className="text-sm font-medium mb-2 block">Room</Label>
+                              <Input
+                                placeholder="101"
+                                value={slot.room}
+                                onChange={(e) => updateTimeSlot(slot.id, 'room', e.target.value)}
+                                className="w-full"
+                              />
+                            </div>
+                            <div className="flex items-end pb-0">
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => removeTimeSlot(slot.id)}
+                                disabled={timeSlots.length === 1}
+                                className="text-red-600 hover:text-red-700 hover:bg-red-50 h-10 w-10 p-0"
+                                title="Delete slot"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </Button>
+                            </div>
+                          </div>
                         </div>
                       </div>
                     </div>

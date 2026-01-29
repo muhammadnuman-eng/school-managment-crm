@@ -80,14 +80,17 @@ export interface CreateExaminationRequest {
   }>;
   examSubjects?: Array<{
     subjectId: string;
+    subjectName: string; // Backend requires this
     totalMarks: number;
     passingMarks?: number;
     weightage?: number;
   }>;
   examSchedules?: Array<{
     classId: string;
+    className?: string; // Optional, but helpful
     sectionId?: string;
     subjectId: string;
+    subjectName: string; // Backend requires this
     examDate: string;
     startTime: string;
     endTime: string;

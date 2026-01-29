@@ -138,6 +138,20 @@ export interface TransportRoute {
   stops?: RouteStop[];
   createdAt?: string;
   updatedAt?: string;
+  // Nested objects from API response
+  bus?: {
+    id: string;
+    registrationNumber: string;
+    capacity: number;
+  };
+  driver?: {
+    id: string;
+    name: string;
+    licenseNumber: string;
+  };
+  _count?: {
+    students: number;
+  };
 }
 
 /**

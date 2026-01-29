@@ -20,10 +20,12 @@ import { Textarea } from '../ui/textarea';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '../ui/dropdown-menu';
 import { toast } from 'sonner';
 import { ScrollArea } from '../ui/scroll-area';
-import { adminService } from '../../services';
+import { adminService, authService } from '../../services';
 import { StudentFee, FeeType, Expense, CreateInvoiceRequest, CreateExpenseRequest } from '../../types/fee.types';
 import { Student } from '../../types/student.types';
 import { ApiException, getUserFriendlyError } from '../../utils/errors';
+import { schoolStorage } from '../../utils/storage';
+import { CreateMessageRequest } from '../../types/communication.types';
 
 // Mock data - commented out, using API data instead
 // const feeRecords = [
@@ -208,6 +210,7 @@ export function FeeManagement() {
   const [studentFees, setStudentFees] = useState<StudentFee[]>([]);
   const [expenses, setExpenses] = useState<Expense[]>([]);
   const [students, setStudents] = useState<Student[]>([]);
+  const [sendingReminder, setSendingReminder] = useState<string | null>(null);
 
   // Filter state
   const [searchQuery, setSearchQuery] = useState('');
@@ -278,16 +281,9 @@ export function FeeManagement() {
         const fetchStudentsOnly = async () => {
           try {
             const studentsResponse = await adminService.getStudents();
-            setStudents(studentsResponse.students || []);
-
-            if (import.meta.env.DEV) {
-              console.log('✅ Students loaded for invoice dialog:', {
-                students: studentsResponse.students || [],
-                count: studentsResponse.students?.length || 0,
-              });
-            }
+            const studentsData = studentsResponse?.students || studentsResponse?.data?.students || [];
+            setStudents(Array.isArray(studentsData) ? studentsData : []);
           } catch (error: any) {
-            console.error('❌ Error fetching students:', error);
             let errorMessage = 'Failed to load students. Please try again.';
             if (error instanceof ApiException) {
               errorMessage = getUserFriendlyError(error);
@@ -298,13 +294,6 @@ export function FeeManagement() {
           }
         };
         fetchStudentsOnly();
-      }
-
-      if (import.meta.env.DEV) {
-        console.log('✅ Fee Types available for invoice dialog:', {
-          feeTypes: manualFeeTypes,
-          count: manualFeeTypes.length,
-        });
       }
     }
   }, [showInvoiceDialog, students.length]);
@@ -317,13 +306,55 @@ export function FeeManagement() {
 
       // Fetch student fees
       const feesResponse = await adminService.getStudentFees();
-      setStudentFees(feesResponse.studentFees || []);
+      
+      // Handle different response structures
+      let feesArray: any[] = [];
+      if (Array.isArray(feesResponse?.data)) {
+        // API returns { data: [...], meta: {...} }
+        feesArray = feesResponse.data;
+      } else if (Array.isArray(feesResponse?.studentFees)) {
+        // API returns { studentFees: [...] }
+        feesArray = feesResponse.studentFees;
+      } else if (Array.isArray(feesResponse)) {
+        // API returns array directly
+        feesArray = feesResponse;
+      }
+
+      // Map API response to StudentFee format
+      const mappedFees: StudentFee[] = feesArray.map((fee: any) => ({
+        id: fee.id,
+        studentId: fee.studentId,
+        studentName: fee.student?.name || fee.studentName || 'Unknown',
+        rollNo: fee.student?.studentId || fee.student?.rollNo || fee.rollNo || '',
+        class: fee.class || '',
+        section: fee.section || '',
+        feeTypeId: fee.feeTypeId || '',
+        feeTypeName: fee.feeTypeName || '',
+        totalAmount: fee.totalAmount || 0,
+        paidAmount: fee.paidAmount || 0,
+        dueAmount: fee.dueAmount || 0,
+        status: fee.status === 'PENDING' ? 'Pending' : 
+               fee.status === 'PAID' ? 'Paid' : 
+               fee.status === 'PARTIAL' ? 'Partial' : 
+               (fee.status || 'Pending') as 'Paid' | 'Partial' | 'Pending',
+        dueDate: fee.dueDate || '',
+        paidDate: fee.paymentDate || fee.paidDate || '',
+        paidTime: fee.paidTime || '',
+        createdAt: fee.createdAt || '',
+        createdTime: fee.createdTime || '',
+        paymentMethod: fee.paymentMethod || '',
+        notes: fee.notes || '',
+        // Store userId for sending reminders
+        userId: fee.student?.userId || fee.student?.user?.id || (fee as any).userId || undefined,
+      } as StudentFee & { userId?: string }));
+
+      setStudentFees(mappedFees);
 
       // Fetch students for invoice form
       const studentsResponse = await adminService.getStudents();
-      setStudents(studentsResponse.students || []);
+      const students = studentsResponse?.students || studentsResponse?.data?.students || [];
+      setStudents(Array.isArray(students) ? students : []);
     } catch (error: any) {
-      console.error('Error fetching fee data:', error);
       let errorMessage = 'Failed to load fee data. Please try again.';
       if (error instanceof ApiException) {
         errorMessage = getUserFriendlyError(error);
@@ -343,9 +374,9 @@ export function FeeManagement() {
   const fetchExpenses = async () => {
     try {
       const expensesResponse = await adminService.getExpenses();
-      setExpenses(expensesResponse.expenses || []);
+      const expensesData = expensesResponse?.expenses || expensesResponse?.data?.expenses || [];
+      setExpenses(Array.isArray(expensesData) ? expensesData : []);
     } catch (error: any) {
-      console.error('Error fetching expenses:', error);
       let errorMessage = 'Failed to load expenses. Please try again.';
       if (error instanceof ApiException) {
         errorMessage = getUserFriendlyError(error);
@@ -423,15 +454,20 @@ export function FeeManagement() {
 
     setIsSubmitting(true);
     try {
-      const payload = {
-        studentId: selectedStudentId,                    // UUID string
-        feeTypeId: String(selectedFeeTypeId),             // MUST be string like "ADMISSION_FEE"
-        totalAmount: parseFloat(invoiceAmount) || 0,       // number, integer ya decimal
-        dueDate: dueDate || undefined,
-        // academicYearId optional hai → nahi bhej rahe, backend pe auto handle hoga
-      };
+      // Validate and convert amount to number
+      const amountValue = parseFloat(invoiceAmount);
+      if (isNaN(amountValue) || amountValue <= 0) {
+        toast.error('Please enter a valid amount greater than 0');
+        setIsSubmitting(false);
+        return;
+      }
 
-      console.log('Sending payload:', payload); // ← YE ZAROOR ADD KARO DEBUG KE LIYE
+      const payload = {
+        studentId: selectedStudentId,
+        feeTypeId: String(selectedFeeTypeId),
+        totalAmount: amountValue, // Backend expects totalAmount, not amount
+        dueDate: dueDate || undefined,
+      };
 
       await adminService.createInvoice(payload);
 
@@ -448,7 +484,6 @@ export function FeeManagement() {
 
       await fetchFeeData();
     } catch (error: any) {
-      console.error('Full error:', error); // ← ye bhi add karo
       let errorMessage = 'Failed to create invoice. Please try again.';
       if (error instanceof ApiException) {
         errorMessage = getUserFriendlyError(error);
@@ -514,12 +549,96 @@ export function FeeManagement() {
       toast.success('Expense deleted successfully!');
       await fetchExpenses();
     } catch (error: any) {
-      console.error('Error deleting expense:', error);
       let errorMessage = 'Failed to delete expense';
       if (error instanceof ApiException) {
         errorMessage = getUserFriendlyError(error);
       }
       toast.error(errorMessage);
+    }
+  };
+
+  const handleSendReminder = async (feeRecord: StudentFee) => {
+    if (sendingReminder === feeRecord.id) return; // Prevent duplicate sends
+
+    setSendingReminder(feeRecord.id);
+    try {
+      // Get current admin user
+      const currentUser = authService.getCurrentUser();
+      if (!currentUser || !currentUser.id) {
+        toast.error('Unable to identify sender. Please login again.');
+        setSendingReminder(null);
+        return;
+      }
+
+      // Get school ID
+      const schoolId = schoolStorage.getSchoolId();
+      if (!schoolId) {
+        toast.error('School ID not found. Please login to your school first.');
+        setSendingReminder(null);
+        return;
+      }
+
+      // Get student userId - check if it's stored in the fee record
+      let studentUserId = (feeRecord as any).userId;
+      
+      // If not found in fee record, try to find student in the students list
+      if (!studentUserId && students.length > 0) {
+        const student = students.find(s => s.id === feeRecord.studentId);
+        if (student && (student as any).userId) {
+          studentUserId = (student as any).userId;
+        }
+      }
+
+      // If still not found, fetch student details
+      if (!studentUserId) {
+        try {
+          const studentResponse = await adminService.getStudentById(feeRecord.studentId);
+          const studentData = studentResponse?.data || studentResponse;
+          studentUserId = (studentData as any)?.userId || (studentData as any)?.user?.id;
+        } catch (error) {
+          // If fetching fails, we'll show an error
+        }
+      }
+
+      // If userId is still not found, show error
+      if (!studentUserId) {
+        toast.error(`Unable to find user ID for student ${feeRecord.studentName}. Please try again.`);
+        setSendingReminder(null);
+        return;
+      }
+
+      // Format due date
+      const dueDateStr = feeRecord.dueDate 
+        ? formatDateTime(feeRecord.dueDate, null)
+        : 'Not specified';
+
+      // Create message content
+      const messageContent = `Dear ${feeRecord.studentName},\n\nThis is a reminder that you have a pending fee payment.\n\nFee Details:\n- Fee Type: ${feeRecord.feeTypeName}\n- Total Amount: ${formatCurrency(feeRecord.totalAmount)}\n- Paid Amount: ${formatCurrency(feeRecord.paidAmount)}\n- Due Amount: ${formatCurrency(feeRecord.dueAmount)}\n- Due Date: ${dueDateStr}\n\nPlease make the payment at your earliest convenience to avoid any inconvenience.\n\nThank you.`;
+
+      // Create message request
+      const messageRequest: CreateMessageRequest = {
+        schoolId: schoolId,
+        senderId: currentUser.id,
+        recipientId: studentUserId,
+        subject: `Fee Payment Reminder - ${feeRecord.feeTypeName}`,
+        content: messageContent,
+        priority: 'HIGH',
+      };
+
+      // Send message
+      await adminService.createMessage(messageRequest);
+
+      toast.success(`Reminder sent to ${feeRecord.studentName} successfully!`);
+    } catch (error: any) {
+      let errorMessage = 'Failed to send reminder. Please try again.';
+      if (error instanceof ApiException) {
+        errorMessage = getUserFriendlyError(error);
+      } else if (error?.message) {
+        errorMessage = error.message;
+      }
+      toast.error(errorMessage);
+    } finally {
+      setSendingReminder(null);
     }
   };
 
@@ -559,7 +678,7 @@ export function FeeManagement() {
         </div>
       </div>
 
-      {/* Summary Cards - Compact Gradient Cards */}
+      {/* Summary Cards - Show invoice cards only for invoices, reminders, and reports tabs */}
       {activeTab === 'invoices' || activeTab === 'reminders' || activeTab === 'reports' ? (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           <div className="relative overflow-hidden rounded-2xl p-5 bg-gradient-to-br from-purple-600 to-purple-700 shadow-lg hover:shadow-xl transition-all duration-300 hover:-translate-y-1 cursor-pointer">
@@ -680,31 +799,35 @@ export function FeeManagement() {
             </div>
 
             <div className="border rounded-lg overflow-hidden">
-              {isLoading ? (
-                <div className="flex items-center justify-center py-12">
-                  <p className="text-gray-600 dark:text-gray-400">Loading fee data...</p>
-                </div>
-              ) : filteredStudentFees.length === 0 ? (
-                <div className="flex items-center justify-center py-12">
-                  <p className="text-gray-600 dark:text-gray-400">No fee records found.</p>
-                </div>
-              ) : (
-                <Table>
-                  <TableHeader>
-                    <TableRow className="bg-gray-50 dark:bg-gray-800">
-                      <TableHead>Student</TableHead>
-                      <TableHead>Class</TableHead>
-                      <TableHead>Total Amount</TableHead>
-                      <TableHead>Paid</TableHead>
-                      <TableHead>Due</TableHead>
-                      <TableHead>Created</TableHead>
-                      <TableHead>Payment Date & Time</TableHead>
-                      <TableHead>Status</TableHead>
-                      <TableHead className="text-right">Actions</TableHead>
+              <Table>
+                <TableHeader>
+                  <TableRow className="bg-gray-50 dark:bg-gray-800">
+                    <TableHead>Student</TableHead>
+                    <TableHead>Class</TableHead>
+                    <TableHead>Total Amount</TableHead>
+                    <TableHead>Paid</TableHead>
+                    <TableHead>Due</TableHead>
+                    <TableHead>Created</TableHead>
+                    <TableHead>Payment Date & Time</TableHead>
+                    <TableHead>Status</TableHead>
+                    <TableHead className="text-right">Actions</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {isLoading ? (
+                    <TableRow>
+                      <TableCell colSpan={9} className="text-center py-12 text-gray-600 dark:text-gray-400">
+                        Loading fee data...
+                      </TableCell>
                     </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {filteredStudentFees.map((record) => (
+                  ) : filteredStudentFees.length === 0 ? (
+                    <TableRow>
+                      <TableCell colSpan={9} className="text-center py-12 text-gray-600 dark:text-gray-400">
+                        No fee records found.
+                      </TableCell>
+                    </TableRow>
+                  ) : (
+                    filteredStudentFees.map((record) => (
                       <TableRow key={record.id} className="hover:bg-gray-50 dark:hover:bg-gray-800">
                         <TableCell>
                           <div>
@@ -752,45 +875,15 @@ export function FeeManagement() {
                           <Button variant="ghost" size="sm">View Invoice</Button>
                         </TableCell>
                       </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              )}
+                    ))
+                  )}
+                </TableBody>
+              </Table>
             </div>
           </Card>
         </TabsContent>
 
         <TabsContent value="expenses" className="space-y-6">
-          {/* Expense Summary - Compact Gradient Cards */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <div className="relative overflow-hidden rounded-2xl p-5 bg-gradient-to-br from-purple-600 to-purple-700 shadow-lg hover:shadow-xl transition-all duration-300 hover:-translate-y-1 cursor-pointer">
-              <div className="absolute inset-0 bg-white/5"></div>
-              <div className="relative">
-                <p className="text-white/90 text-sm mb-2 font-medium">Total Expenses</p>
-                <h3 className="text-white text-3xl mb-1 tracking-tight">{formatCurrency(totalExpenses)}</h3>
-                <p className="text-white/80 text-sm font-medium">{expenses.length} entries</p>
-              </div>
-            </div>
-
-            <div className="relative overflow-hidden rounded-2xl p-5 bg-gradient-to-br from-green-500 to-green-600 shadow-lg hover:shadow-xl transition-all duration-300 hover:-translate-y-1 cursor-pointer">
-              <div className="absolute inset-0 bg-white/5"></div>
-              <div className="relative">
-                <p className="text-white/90 text-sm mb-2 font-medium">Paid Expenses</p>
-                <h3 className="text-white text-3xl mb-1 tracking-tight">{formatCurrency(paidExpenses)}</h3>
-                <p className="text-white/80 text-sm font-medium">{expenses.filter(e => e.status === 'Paid').length} transactions</p>
-              </div>
-            </div>
-
-            <div className="relative overflow-hidden rounded-2xl p-5 bg-gradient-to-br from-orange-500 to-orange-600 shadow-lg hover:shadow-xl transition-all duration-300 hover:-translate-y-1 cursor-pointer">
-              <div className="absolute inset-0 bg-white/5"></div>
-              <div className="relative">
-                <p className="text-white/90 text-sm mb-2 font-medium">Pending/Approved</p>
-                <h3 className="text-white text-3xl mb-1 tracking-tight">{formatCurrency(pendingExpenses)}</h3>
-                <p className="text-white/80 text-sm font-medium">{expenses.filter(e => e.status !== 'Paid').length} pending</p>
-              </div>
-            </div>
-          </div>
-
           <Card className="p-6">
             <div className="flex items-center gap-4 mb-6">
               <h3 className="text-lg text-gray-900 dark:text-white">Expense Log</h3>
@@ -911,24 +1004,43 @@ export function FeeManagement() {
         <TabsContent value="reminders" className="space-y-6">
           <Card className="p-6">
             <h3 className="text-lg text-gray-900 dark:text-white mb-4">Pending Payment Reminders</h3>
-            <div className="space-y-3">
-              {studentFees.filter(r => r.status !== 'Paid').map((record) => (
-                <div key={record.id} className="flex items-center justify-between p-4 border rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800">
-                  <div>
-                    <p className="text-sm text-gray-900 dark:text-white mb-1">{record.studentName}</p>
-                    <p className="text-xs text-gray-500 dark:text-gray-400">
-                      {record.class} • Due: {formatCurrency(record.dueAmount || 0)} • {record.dueDate ? `Deadline: ${record.dueDate}` : 'No deadline'}
-                    </p>
-                    {record.createdAt && (
-                      <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">
-                        Created: {formatDateTime(record.createdAt, record.createdTime || null)}
-                      </p>
-                    )}
+            {isLoading ? (
+              <div className="flex items-center justify-center py-12">
+                <p className="text-gray-600 dark:text-gray-400">Loading reminders...</p>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {studentFees.filter(r => r.status !== 'Paid' && r.status !== 'paid').length === 0 ? (
+                  <div className="flex items-center justify-center py-12">
+                    <p className="text-gray-600 dark:text-gray-400">No pending payment reminders.</p>
                   </div>
-                  <Button size="sm" variant="outline">Send Reminder</Button>
-                </div>
-              ))}
-            </div>
+                ) : (
+                  studentFees.filter(r => r.status !== 'Paid' && r.status !== 'paid').map((record) => (
+                    <div key={record.id} className="flex items-center justify-between p-4 border rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800">
+                      <div>
+                        <p className="text-sm text-gray-900 dark:text-white mb-1">{record.studentName}</p>
+                        <p className="text-xs text-gray-500 dark:text-gray-400">
+                          {record.class} • Due: {formatCurrency(record.dueAmount || 0)} • {record.dueDate ? `Deadline: ${formatDateTime(record.dueDate, null)}` : 'No deadline'}
+                        </p>
+                        {record.createdAt && (
+                          <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">
+                            Created: {formatDateTime(record.createdAt, record.createdTime || null)}
+                          </p>
+                        )}
+                      </div>
+                      <Button 
+                        size="sm" 
+                        variant="outline"
+                        onClick={() => handleSendReminder(record)}
+                        disabled={sendingReminder === record.id}
+                      >
+                        {sendingReminder === record.id ? 'Sending...' : 'Send Reminder'}
+                      </Button>
+                    </div>
+                  ))
+                )}
+              </div>
+            )}
           </Card>
         </TabsContent>
 

@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { ArrowLeft, Shield, Mail, Lock, Eye, EyeOff, Chrome } from 'lucide-react';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
@@ -28,6 +29,7 @@ interface AdminLoginProps {
 }
 
 export function AdminLogin({ onBack, onForgotPassword, onLogin, onSignup }: AdminLoginProps) {
+  const navigate = useNavigate();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -152,9 +154,7 @@ export function AdminLogin({ onBack, onForgotPassword, onLogin, onSignup }: Admi
         toast.success('Admin login successful');
         // Redirect directly to school login page (don't show login-success screen)
         // Use navigate instead of window.location to avoid page reload
-        setTimeout(() => {
-          window.location.href = '/admin/school-login';
-        }, 500);
+        navigate('/admin/school-login', { replace: true });
       }
     } catch (error: any) {
       // Handle errors

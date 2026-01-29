@@ -1,4 +1,5 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { PortalSelection } from './PortalSelection';
 import { AdminLogin } from './AdminLogin';
 import { AdminRegister } from './AdminRegister';
@@ -32,9 +33,12 @@ export type UserRole = 'admin' | 'teacher' | 'student' | 'parent';
 
 interface AuthSystemProps {
   onLoginSuccess?: (role: UserRole) => void;
+  initialPortal?: UserRole | null;
+  onBackToPortalSelection?: () => void;
 }
 
-export function AuthSystem({ onLoginSuccess }: AuthSystemProps) {
+export function AuthSystem({ onLoginSuccess, initialPortal = null, onBackToPortalSelection }: AuthSystemProps) {
+  const navigate = useNavigate();
   const [currentScreen, setCurrentScreen] = useState<AuthScreen>('portal-selection');
   const [selectedRole, setSelectedRole] = useState<UserRole | null>(null);
   const [userEmail, setUserEmail] = useState('');
@@ -43,6 +47,27 @@ export function AuthSystem({ onLoginSuccess }: AuthSystemProps) {
   const [sessionId, setSessionId] = useState<string | undefined>(undefined);
   const [userId, setUserId] = useState<string | undefined>(undefined);
   const [isFirstLogin, setIsFirstLogin] = useState(false);
+
+  // Set initial screen based on initialPortal prop
+  useEffect(() => {
+    if (initialPortal) {
+      setSelectedRole(initialPortal);
+      switch (initialPortal) {
+        case 'admin':
+          setCurrentScreen('admin-login');
+          break;
+        case 'teacher':
+          setCurrentScreen('teacher-login');
+          break;
+        case 'student':
+        case 'parent':
+          setCurrentScreen('student-login');
+          break;
+        default:
+          setCurrentScreen('portal-selection');
+      }
+    }
+  }, [initialPortal]);
 
   const handlePortalSelect = (role: UserRole) => {
     setSelectedRole(role);
@@ -111,7 +136,7 @@ export function AuthSystem({ onLoginSuccess }: AuthSystemProps) {
     } else {
       // For admin, redirect to school login instead of showing login-success
       if (selectedRole === 'admin') {
-        window.location.href = '/admin/school-login';
+        navigate('/admin/school-login', { replace: true });
         return;
       }
       setCurrentScreen('login-success');
@@ -132,7 +157,7 @@ export function AuthSystem({ onLoginSuccess }: AuthSystemProps) {
     // For admin, redirect to school login instead of login-success
     if (selectedRole === 'admin') {
       // Redirect to school login page
-      window.location.href = '/admin/school-login';
+      navigate('/admin/school-login', { replace: true });
       return;
     }
     

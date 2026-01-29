@@ -42,353 +42,286 @@ import { SchoolLoginPage } from './components/auth/SchoolLoginPage';
 import { authService } from './services';
 import { schoolStorage } from './utils/storage';
 import { toast } from 'sonner';
+import { PortalSelection } from './components/auth/PortalSelection';
 
 export default function App() {
   const { schoolId } = useParams<{ schoolId: string }>();
   const navigate = useNavigate();
   const location = useLocation();
 
-  // Set to true to bypass authentication for development
   const BYPASS_AUTH = false;
 
-  // Initialize authentication state - start with checking storage to prevent flash
   const [isAuthenticated, setIsAuthenticated] = useState(() => {
     if (BYPASS_AUTH) return true;
-    // Check if user is authenticated from storage immediately
-    const authenticated = authService.isAuthenticated();
-    return authenticated;
+    return authService.isAuthenticated();
   });
 
-  const [isCheckingAuth, setIsCheckingAuth] = useState(true); // Add loading state
-
+  const [isCheckingAuth, setIsCheckingAuth] = useState(true);
   const [userType, setUserType] = useState<'admin' | 'teacher' | 'student'>(() => {
-    // Try to restore from storage first
     const storedUserType = sessionStorage.getItem('app_user_type') as 'admin' | 'teacher' | 'student' | null;
-    if (storedUserType && ['admin', 'teacher', 'student'].includes(storedUserType)) {
-      return storedUserType;
-    }
-
-    // Fallback to user data from auth service
+    if (storedUserType) return storedUserType;
     const user = authService.getCurrentUser();
     if (user?.role) {
       const role = user.role.toLowerCase();
-      if (role === 'super_admin' || role === 'school_admin' || role === 'admin') {
-        return 'admin';
-      } else if (role === 'teacher') {
-        return 'teacher';
-      } else if (role === 'student') {
-        return 'student';
-      }
+      if (['super_admin', 'school_admin', 'admin'].includes(role)) return 'admin';
+      if (role === 'teacher') return 'teacher';
+      if (role === 'student') return 'student';
     }
     return 'admin';
   });
 
   const [currentPage, setCurrentPage] = useState(() => {
-    // Restore current page from storage on reload
     const storedPage = sessionStorage.getItem('app_current_page');
-    if (storedPage) {
-      return storedPage;
-    }
-    return 'dashboard';
+    return storedPage || 'dashboard';
   });
+
   const [theme, setTheme] = useState<'light' | 'dark'>('light');
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  // Only restore selectedPortal if we're in the middle of a login flow
+  // Otherwise, always start with portal selection
+  const [selectedPortal, setSelectedPortal] = useState<string | null>(() => {
+    const path = window.location.pathname;
+    
+    // If we're on school-login or login-success, we're in the middle of admin flow
+    if (path.includes('/admin/school-login') || path.includes('/admin/login-success')) {
+      const stored = sessionStorage.getItem('app_selected_portal');
+      return stored || 'admin'; // Default to admin for these pages
+    }
+    
+    // If we're on dashboard route with school ID, restore portal
+    if (path.startsWith('/admin/school/')) {
+      const stored = sessionStorage.getItem('app_selected_portal');
+      if (stored) return stored;
+    }
+    
+    // Otherwise, start fresh with portal selection
+    return null;
+  });
 
-  // Check authentication on mount and when storage changes
+  // --- EFFECT: Auth & school ID checks ---
   useEffect(() => {
-    if (!BYPASS_AUTH) {
-      const checkAuth = () => {
-        const authenticated = authService.isAuthenticated();
-
-        // If not authenticated and on protected route, redirect to login
-        if (!authenticated) {
-          setIsAuthenticated(false);
-          setIsCheckingAuth(false);
-          // Only redirect if we're on a protected route (not on login page)
-          const currentPath = window.location.pathname;
-          if (!currentPath.includes('/admin/login') && !currentPath.includes('/admin/school-login')) {
-            navigate('/admin/login');
-          }
-          return;
-        }
-
-        // User is authenticated
-        setIsAuthenticated(true);
-        setIsCheckingAuth(false);
-
-        // Update user type if authenticated
-        const user = authService.getCurrentUser();
-        if (user?.role) {
-          const role = user.role.toLowerCase();
-          let newUserType: 'admin' | 'teacher' | 'student' = 'admin';
-          if (role === 'super_admin' || role === 'school_admin' || role === 'admin') {
-            newUserType = 'admin';
-          } else if (role === 'teacher') {
-            newUserType = 'teacher';
-          } else if (role === 'student') {
-            newUserType = 'student';
-          }
-          setUserType(newUserType);
-          // Save user type to storage
-          sessionStorage.setItem('app_user_type', newUserType);
-        }
-
-        // Verify school ID matches route (only if authenticated and portal is selected)
-        if (selectedPortal && schoolId) {
-          // Check schoolStorage first (most reliable)
-          const storedSchoolId = schoolStorage.getSchoolId();
-          const userSchoolId = user?.schoolId;
-          const currentSchoolId = storedSchoolId || userSchoolId;
-
-          // If no school ID, redirect to school login (don't allow dashboard access)
-          if (!currentSchoolId) {
-            console.warn('Admin authenticated but no school ID, redirecting to school login');
-            navigate('/admin/school-login');
-            return;
-          }
-
-          // If school ID exists, verify route matches
-          if (schoolId && currentSchoolId !== schoolId) {
-            // School ID mismatch - redirect to correct school dashboard
-            console.log('School ID mismatch, redirecting:', { routeSchoolId: schoolId, currentSchoolId });
-            navigate(`/admin/school/${currentSchoolId}/dashboard`);
-          } else if (!currentSchoolId) {
-            // No school ID found - don't redirect, let portal selection handle it
-            console.warn('No school ID found');
-          }
-        } else if (selectedPortal && !schoolId) {
-          // No schoolId in route - check if we have one stored
-          const storedSchoolId = schoolStorage.getSchoolId();
-          if (storedSchoolId) {
-            // Redirect to dashboard with school ID
-            navigate(`/admin/school/${storedSchoolId}/dashboard`);
-          }
-          // If no school ID, don't redirect - portal selection will handle it
-        }
-
-        // Restore current page from storage if available
-        const storedPage = sessionStorage.getItem('app_current_page');
-        if (storedPage) {
-          setCurrentPage(storedPage);
-        }
-      };
-
-      // Check immediately
-      checkAuth();
-
-      // Listen for storage changes (for cross-tab sync)
-      const handleStorageChange = (e: StorageEvent) => {
-        if (e.key === 'auth_token' || e.key === 'auth_refresh_token' || e.key === 'auth_user' || e.key === 'school_uuid') {
-          checkAuth();
-        }
-      };
-
-      window.addEventListener('storage', handleStorageChange);
-
-      return () => {
-        window.removeEventListener('storage', handleStorageChange);
-      };
-    } else {
+    if (BYPASS_AUTH) {
       setIsCheckingAuth(false);
+      return;
     }
-  }, [navigate, schoolId, selectedPortal, userType, location.pathname]);
 
-  useEffect(() => {
-    if (theme === 'dark') {
-      document.documentElement.classList.add('dark');
-    } else {
-      document.documentElement.classList.remove('dark');
+    // Only check auth status, don't auto-redirect
+    // Portal selection flow should always be followed
+    const authenticated = authService.isAuthenticated();
+    
+    // Only update state if it changed to prevent infinite loops
+    setIsAuthenticated(prev => {
+      if (prev !== authenticated) {
+        return authenticated;
+      }
+      return prev;
+    });
+    setIsCheckingAuth(false);
+
+    // Only update user type if authenticated, but don't redirect
+    if (authenticated) {
+      const user = authService.getCurrentUser();
+      if (user?.role) {
+        const role = user.role.toLowerCase();
+        let userRole: 'admin' | 'teacher' | 'student' = 'admin';
+        if (['super_admin', 'school_admin', 'admin'].includes(role)) userRole = 'admin';
+        else if (role === 'teacher') userRole = 'teacher';
+        else if (role === 'student') userRole = 'student';
+        setUserType(prev => {
+          if (prev !== userRole) {
+            sessionStorage.setItem('app_user_type', userRole);
+            return userRole;
+          }
+          return prev;
+        });
+      }
     }
+
+    // Only redirect if we're already on a dashboard route and have school ID
+    // Don't redirect during login flow
+    const path = location.pathname;
+    if (path.includes('/login') || path.includes('/login-success') || path.includes('/school-login')) {
+      return;
+    }
+
+    // Only redirect to dashboard if:
+    // 1. User is authenticated
+    // 2. Portal is selected
+    // 3. We're not in login flow
+    // 4. We have school ID (for admin)
+    // 5. We're not already on the correct dashboard route
+    if (authenticated && selectedPortal && path.startsWith('/admin/school/')) {
+      const storedSchoolId = schoolStorage.getSchoolId();
+      const user = authService.getCurrentUser();
+      const userSchoolId = user?.schoolId;
+      const currentSchoolId = storedSchoolId || userSchoolId;
+
+      if (selectedPortal === 'admin' && currentSchoolId) {
+        const expectedPath = `/admin/school/${currentSchoolId}/dashboard`;
+        // Only navigate if we're not already on the correct path
+        if (path !== expectedPath) {
+          if (schoolId && currentSchoolId !== schoolId) {
+            navigate(expectedPath, { replace: true });
+          } else if (!schoolId && currentSchoolId) {
+            navigate(expectedPath, { replace: true });
+          }
+        }
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [navigate, schoolId, location.pathname, selectedPortal]); // Removed isAuthenticated from dependencies
+
+  // --- Theme effect ---
+  useEffect(() => {
+    if (theme === 'dark') document.documentElement.classList.add('dark');
+    else document.documentElement.classList.remove('dark');
   }, [theme]);
 
-  const handleThemeToggle = () => {
-    setTheme(theme === 'light' ? 'dark' : 'light');
-  };
+  // Effect to set portal if we're on school-login or login-success pages
+  // This must be before any conditional returns (Rules of Hooks)
+  useEffect(() => {
+    if (!selectedPortal && (location.pathname.includes('/admin/school-login') || location.pathname.includes('/admin/login-success'))) {
+      const stored = sessionStorage.getItem('app_selected_portal');
+      if (!stored) {
+        setSelectedPortal('admin');
+        sessionStorage.setItem('app_selected_portal', 'admin');
+      }
+    }
+  }, [location.pathname, selectedPortal]);
 
+  // --- Handlers ---
+  const handleThemeToggle = () => setTheme(theme === 'light' ? 'dark' : 'light');
   const handleSwitchUser = (type: 'admin' | 'teacher' | 'student') => {
     setUserType(type);
     setCurrentPage('dashboard');
-    // Save to storage
     sessionStorage.setItem('app_user_type', type);
     sessionStorage.setItem('app_current_page', 'dashboard');
   };
-
   const handleNavigate = (page: string) => {
     setCurrentPage(page);
-    // Save current page to storage for reload persistence
     sessionStorage.setItem('app_current_page', page);
   };
-
   const handleProfileSettings = () => {
     setCurrentPage('profile');
-    // Save current page to storage
     sessionStorage.setItem('app_current_page', 'profile');
   };
+  const handleMenuToggle = () => setSidebarCollapsed(!sidebarCollapsed);
+  const handlePortalSelect = (portal: string) => {
+    // Clear any existing auth when selecting a new portal
+    // This ensures fresh login flow
+    setSelectedPortal(portal);
+    sessionStorage.setItem('app_selected_portal', portal);
+    setIsAuthenticated(false);
+    // Clear school ID when starting new portal flow
+    schoolStorage.clearSchoolId();
+  };
+  const handleBackToPortalSelection = () => {
+    setSelectedPortal(null);
+    sessionStorage.removeItem('app_selected_portal');
+    setIsAuthenticated(false);
+    schoolStorage.clearSchoolId();
+  };
 
-  const handleMenuToggle = () => {
-    setSidebarCollapsed(!sidebarCollapsed);
+  const handleLoginSuccess = (role: UserRole) => {
+    setIsAuthenticated(true);
+    const userRole = role as 'admin' | 'teacher' | 'student';
+    setUserType(userRole);
+    setCurrentPage('dashboard');
+    sessionStorage.setItem('app_user_type', userRole);
+    sessionStorage.setItem('app_current_page', 'dashboard');
+
+    if (role === 'admin') {
+      const schoolId = schoolStorage.getSchoolId();
+      const user = authService.getCurrentUser();
+      const userSchoolId = user?.schoolId;
+      const finalSchoolId = schoolId || userSchoolId;
+      if (!finalSchoolId) {
+        window.location.href = '/admin/school-login';
+        return;
+      }
+      navigate(`/admin/school/${finalSchoolId}/dashboard`);
+    }
+  };
+
+  const handleLogout = async () => {
+    try {
+      await authService.logout({ logoutAllDevices: false });
+      setIsAuthenticated(false);
+      setCurrentPage('dashboard');
+      setSelectedPortal(null);
+      sessionStorage.removeItem('app_current_page');
+      sessionStorage.removeItem('app_user_type');
+      sessionStorage.removeItem('app_selected_portal');
+      schoolStorage.clearSchoolId();
+      toast.success('Logged out successfully');
+    } catch {
+      setIsAuthenticated(false);
+      setCurrentPage('dashboard');
+      setSelectedPortal(null);
+      sessionStorage.removeItem('app_current_page');
+      sessionStorage.removeItem('app_user_type');
+      sessionStorage.removeItem('app_selected_portal');
+      schoolStorage.clearSchoolId();
+      toast.info('Logged out successfully');
+    }
   };
 
   const getUserInfo = () => {
     switch (userType) {
-      case 'admin':
-        return { name: 'Admin User', email: 'admin@edumanage.com' };
-      case 'teacher':
-        return { name: 'Dr. Sarah Mitchell', email: 'sarah.m@school.com' };
-      case 'student':
-        return { name: 'Emily Rodriguez', email: 'emily.r@school.com' };
+      case 'admin': return { name: 'Admin User', email: 'admin@edumanage.com' };
+      case 'teacher': return { name: 'Dr. Sarah Mitchell', email: 'sarah.m@school.com' };
+      case 'student': return { name: 'Emily Rodriguez', email: 'emily.r@school.com' };
     }
   };
 
   const renderPage = () => {
     if (userType === 'admin') {
       switch (currentPage) {
-        case 'dashboard':
-          return <AdminDashboard />;
-        case 'students':
-          return <Students />;
-        case 'teachers':
-          return <Teachers />;
-        case 'fees':
-          return <FeeManagement />;
-        case 'subscriptions':
-          return <Subscriptions />;
-        case 'classes':
-          return <Classes />;
-        case 'attendance':
-          return <Attendance />;
-        case 'communication':
-          return <Communication />;
-        case 'examinations':
-          return <Examinations />;
-        case 'transport':
-          return <Transport />;
-        case 'hostel':
-          return <Hostel />;
-        case 'inventory':
-          return <OfficeInventory />;
-        case 'analytics':
-          return <Analytics />;
-        case 'settings':
-          return <Settings />;
-        case 'profile':
-          return <AdminProfile />;
-        default:
-          return <AdminDashboard />;
+        case 'dashboard': return <AdminDashboard />;
+        case 'students': return <Students />;
+        case 'teachers': return <Teachers />;
+        case 'fees': return <FeeManagement />;
+        case 'subscriptions': return <Subscriptions />;
+        case 'classes': return <Classes />;
+        case 'attendance': return <Attendance />;
+        case 'communication': return <Communication />;
+        case 'examinations': return <Examinations />;
+        case 'transport': return <Transport />;
+        case 'hostel': return <Hostel />;
+        case 'inventory': return <OfficeInventory />;
+        case 'analytics': return <Analytics />;
+        case 'settings': return <Settings />;
+        case 'profile': return <AdminProfile />;
+        default: return <AdminDashboard />;
       }
     } else if (userType === 'teacher') {
       switch (currentPage) {
-        case 'dashboard':
-          return <TeacherDashboard />;
-        case 'classes':
-          return <TeacherClasses />;
-        case 'attendance':
-          return <TeacherAttendance />;
-        case 'assignments':
-          return <TeacherAssignments />;
-        case 'timetable':
-          return <TeacherTimetable />;
-        case 'gradebook':
-          return <TeacherGradebook />;
-        case 'messages':
-          return <TeacherMessages />;
-        case 'profile':
-          return <TeacherProfile />;
-        default:
-          return <TeacherDashboard />;
+        case 'dashboard': return <TeacherDashboard />;
+        case 'classes': return <TeacherClasses />;
+        case 'attendance': return <TeacherAttendance />;
+        case 'assignments': return <TeacherAssignments />;
+        case 'timetable': return <TeacherTimetable />;
+        case 'gradebook': return <TeacherGradebook />;
+        case 'messages': return <TeacherMessages />;
+        case 'profile': return <TeacherProfile />;
+        default: return <TeacherDashboard />;
       }
     } else {
       switch (currentPage) {
-        case 'dashboard':
-          return <StudentDashboard />;
-        case 'timetable':
-          return <StudentTimetable />;
-        case 'assignments':
-          return <StudentAssignments />;
-        case 'grades':
-          return <StudentGrades />;
-        case 'attendance':
-          return <StudentAttendance />;
-        case 'fees':
-          return <StudentFees />;
-        case 'exams':
-          return <StudentExams />;
-        case 'messages':
-          return <StudentMessages />;
-        case 'profile':
-          return <StudentProfile />;
-        default:
-          return <StudentDashboard />;
+        case 'dashboard': return <StudentDashboard />;
+        case 'timetable': return <StudentTimetable />;
+        case 'assignments': return <StudentAssignments />;
+        case 'grades': return <StudentGrades />;
+        case 'attendance': return <StudentAttendance />;
+        case 'fees': return <StudentFees />;
+        case 'exams': return <StudentExams />;
+        case 'messages': return <StudentMessages />;
+        case 'profile': return <StudentProfile />;
+        default: return <StudentDashboard />;
       }
     }
   };
 
-  const handleLoginSuccess = (role: UserRole) => {
-    setIsAuthenticated(true);
-    const userTypeValue = role as 'admin' | 'teacher' | 'student';
-    setUserType(userTypeValue);
-    setCurrentPage('dashboard');
-    // Save to storage
-    sessionStorage.setItem('app_user_type', userTypeValue);
-    sessionStorage.setItem('app_current_page', 'dashboard');
-
-    // If admin login, redirect to school login page
-    if (role === 'admin') {
-      // Check if school ID already exists
-      const schoolId = schoolStorage.getSchoolId();
-      const user = authService.getCurrentUser();
-      const userSchoolId = user?.schoolId;
-
-      // If no school ID, redirect to school login
-      if (!schoolId && !userSchoolId) {
-        // Navigate to school login page
-        window.location.href = '/admin/school-login';
-        return;
-      }
-
-      // If school ID exists, redirect to dashboard with school ID
-      const finalSchoolId = schoolId || userSchoolId;
-      if (finalSchoolId) {
-        navigate(`/admin/school/${finalSchoolId}/dashboard`);
-        return;
-      }
-    }
-  };
-
-  const handleLogout = async () => {
-    try {
-      // Call logout API
-      await authService.logout({
-        logoutAllDevices: false,
-      });
-
-      // Clear local state
-      setIsAuthenticated(false);
-      setCurrentPage('dashboard');
-
-      // Clear page storage on logout
-      sessionStorage.removeItem('app_current_page');
-      sessionStorage.removeItem('app_user_type');
-
-      // Show success message
-      toast.success('Logged out successfully');
-    } catch (error: any) {
-      // Even if API fails, clear local state (tokens already cleared by service)
-      setIsAuthenticated(false);
-      setCurrentPage('dashboard');
-
-      // Clear page storage on logout
-      sessionStorage.removeItem('app_current_page');
-      sessionStorage.removeItem('app_user_type');
-
-      // Show info message (not error, since local session is cleared)
-      toast.info('Logged out successfully');
-    }
-  };
-
-  const userInfo = getUserInfo();
-
-  // Show loading state while checking authentication
   if (isCheckingAuth) {
     return (
       <div className="flex h-screen items-center justify-center bg-white dark:bg-gray-950">
@@ -400,7 +333,6 @@ export default function App() {
     );
   }
 
-  // Check if we're on login-success page (after school login)
   if (location.pathname === '/admin/login-success') {
     return (
       <>
@@ -410,7 +342,6 @@ export default function App() {
     );
   }
 
-  // Check if we're on school-login page - show SchoolLoginPage directly
   if (location.pathname === '/admin/school-login') {
     return (
       <>
@@ -420,7 +351,7 @@ export default function App() {
     );
   }
 
-  // Show portal selection first - until portal is selected, nothing else should show
+  // Always show portal selection first if not selected
   if (!selectedPortal) {
     return (
       <>
@@ -430,19 +361,34 @@ export default function App() {
     );
   }
 
-  // Show authentication system if not authenticated (but portal is selected)
-  if (!isAuthenticated) {
-    return (
-      <>
-        <AuthSystem
-          onLoginSuccess={handleLoginSuccess}
-          initialPortal={selectedPortal}
-          onBackToPortalSelection={handleBackToPortalSelection}
-        />
-        <Toaster />
-      </>
-    );
+  // If portal is selected, check what to show
+  // Flow: Portal Selection → Admin Login → School Login → Login Success → Dashboard
+  if (selectedPortal) {
+    const storedSchoolId = schoolStorage.getSchoolId();
+    const user = authService.getCurrentUser();
+    const userSchoolId = user?.schoolId;
+    const hasSchoolId = storedSchoolId || userSchoolId;
+    
+    // If authenticated AND have school ID AND on dashboard route → show dashboard
+    // Otherwise → show login page (AuthSystem)
+    if (isAuthenticated && hasSchoolId && location.pathname.startsWith('/admin/school/')) {
+      // Allow dashboard to show - continue to dashboard rendering below
+    } else {
+      // Show login page - portal selected but not fully authenticated yet
+      return (
+        <>
+          <AuthSystem
+            onLoginSuccess={handleLoginSuccess}
+            initialPortal={selectedPortal as UserRole}
+            onBackToPortalSelection={handleBackToPortalSelection}
+          />
+          <Toaster />
+        </>
+      );
+    }
   }
+
+  const userInfo = getUserInfo();
 
   return (
     <div className="flex h-screen bg-white dark:bg-gray-950">
@@ -452,7 +398,6 @@ export default function App() {
         onNavigate={handleNavigate}
         collapsed={sidebarCollapsed}
       />
-
       <div className="flex-1 flex flex-col overflow-hidden">
         <Header
           userType={userType}
@@ -465,276 +410,15 @@ export default function App() {
           onLogout={handleLogout}
           onProfileSettings={handleProfileSettings}
         />
-
         <main className="flex-1 overflow-y-auto p-6">
           <AnimatePresence mode="wait">
-            <motion.div
-              key={currentPage}
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -20 }}
-              transition={{ duration: 0.2, ease: 'easeInOut' }}
-            >
+            <motion.div key={currentPage} initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -20 }} transition={{ duration: 0.2, ease: 'easeInOut' }}>
               {renderPage()}
             </motion.div>
           </AnimatePresence>
         </main>
       </div>
-
       <Toaster />
-    </div>
-  );
-}
-
-// Placeholder Components
-function ClassesPlaceholder() {
-  return (
-    <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl text-gray-900 dark:text-white mb-2">Classes & Sections</h1>
-        <p className="text-gray-600 dark:text-gray-400">Manage class structure and subject mapping</p>
-      </div>
-      <div className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-800 p-12 text-center">
-        <p className="text-gray-500 dark:text-gray-400">Classes & Sections management interface</p>
-      </div>
-    </div>
-  );
-}
-
-function AttendancePlaceholder() {
-  return (
-    <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl text-gray-900 dark:text-white mb-2">Attendance Tracking</h1>
-        <p className="text-gray-600 dark:text-gray-400">View and manage student attendance</p>
-      </div>
-      <div className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-800 p-12 text-center">
-        <p className="text-gray-500 dark:text-gray-400">Attendance calendar and list view</p>
-      </div>
-    </div>
-  );
-}
-
-function CommunicationPlaceholder() {
-  return (
-    <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl text-gray-900 dark:text-white mb-2">Communication Hub</h1>
-        <p className="text-gray-600 dark:text-gray-400">Notice board, chat, and messaging</p>
-      </div>
-      <div className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-800 p-12 text-center">
-        <p className="text-gray-500 dark:text-gray-400">Communication module with chat interface</p>
-      </div>
-    </div>
-  );
-}
-
-function ExaminationsPlaceholder() {
-  return (
-    <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl text-gray-900 dark:text-white mb-2">Examination Management</h1>
-        <p className="text-gray-600 dark:text-gray-400">Schedule exams, manage grading, and generate report cards</p>
-      </div>
-      <div className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-800 p-12 text-center">
-        <p className="text-gray-500 dark:text-gray-400">Exam scheduling and report card generation</p>
-      </div>
-    </div>
-  );
-}
-
-function TransportPlaceholder() {
-  return (
-    <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl text-gray-900 dark:text-white mb-2">Transport Management</h1>
-        <p className="text-gray-600 dark:text-gray-400">Manage buses, routes, and student transport</p>
-      </div>
-      <div className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-800 p-12 text-center">
-        <p className="text-gray-500 dark:text-gray-400">Transport routes and vehicle management</p>
-      </div>
-    </div>
-  );
-}
-
-function HostelPlaceholder() {
-  return (
-    <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl text-gray-900 dark:text-white mb-2">Hostel Management</h1>
-        <p className="text-gray-600 dark:text-gray-400">Manage hostel rooms and student allocations</p>
-      </div>
-      <div className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-800 p-12 text-center">
-        <p className="text-gray-500 dark:text-gray-400">Hostel room allocation and management</p>
-      </div>
-    </div>
-  );
-}
-
-function LibraryPlaceholder() {
-  return (
-    <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl text-gray-900 dark:text-white mb-2">Library Management</h1>
-        <p className="text-gray-600 dark:text-gray-400">Manage books, issue records, and library resources</p>
-      </div>
-      <div className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-800 p-12 text-center">
-        <p className="text-gray-500 dark:text-gray-400">Library book catalog and issue tracking</p>
-      </div>
-    </div>
-  );
-}
-
-function AnalyticsPlaceholder() {
-  return (
-    <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl text-gray-900 dark:text-white mb-2">Analytics & Reports</h1>
-        <p className="text-gray-600 dark:text-gray-400">Comprehensive insights and performance metrics</p>
-      </div>
-      <div className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-800 p-12 text-center">
-        <p className="text-gray-500 dark:text-gray-400">Advanced analytics and custom reports</p>
-      </div>
-    </div>
-  );
-}
-
-function SettingsPlaceholder() {
-  return (
-    <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl text-gray-900 dark:text-white mb-2">Settings</h1>
-        <p className="text-gray-600 dark:text-gray-400">System configuration and preferences</p>
-      </div>
-      <div className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-800 p-12 text-center">
-        <p className="text-gray-500 dark:text-gray-400">System settings, roles, and permissions</p>
-      </div>
-    </div>
-  );
-}
-
-function TeacherAttendancePlaceholder() {
-  return (
-    <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl text-gray-900 dark:text-white mb-2">Mark Attendance</h1>
-        <p className="text-gray-600 dark:text-gray-400">Take attendance for your classes</p>
-      </div>
-      <div className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-800 p-12 text-center">
-        <p className="text-gray-500 dark:text-gray-400">Attendance marking interface with checkboxes</p>
-      </div>
-    </div>
-  );
-}
-
-function TeacherAssignmentsPlaceholder() {
-  return (
-    <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl text-gray-900 dark:text-white mb-2">Assignments</h1>
-        <p className="text-gray-600 dark:text-gray-400">Create and manage assignments</p>
-      </div>
-      <div className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-800 p-12 text-center">
-        <p className="text-gray-500 dark:text-gray-400">Assignment upload and submission tracking</p>
-      </div>
-    </div>
-  );
-}
-
-function TeacherExamsPlaceholder() {
-  return (
-    <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl text-gray-900 dark:text-white mb-2">Exam Marks Entry</h1>
-        <p className="text-gray-600 dark:text-gray-400">Enter and manage exam marks</p>
-      </div>
-      <div className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-800 p-12 text-center">
-        <p className="text-gray-500 dark:text-gray-400">Grade entry and marks management</p>
-      </div>
-    </div>
-  );
-}
-
-function TimetablePlaceholder() {
-  return (
-    <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl text-gray-900 dark:text-white mb-2">My Timetable</h1>
-        <p className="text-gray-600 dark:text-gray-400">Your weekly class schedule</p>
-      </div>
-      <div className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-800 p-12 text-center">
-        <p className="text-gray-500 dark:text-gray-400">Weekly calendar view of classes</p>
-      </div>
-    </div>
-  );
-}
-
-function StudentAssignmentsPlaceholder() {
-  return (
-    <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl text-gray-900 dark:text-white mb-2">Assignments</h1>
-        <p className="text-gray-600 dark:text-gray-400">View and submit your assignments</p>
-      </div>
-      <div className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-800 p-12 text-center">
-        <p className="text-gray-500 dark:text-gray-400">Assignment list and submission interface</p>
-      </div>
-    </div>
-  );
-}
-
-function StudentFeesPlaceholder() {
-  return (
-    <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl text-gray-900 dark:text-white mb-2">Fee Payment</h1>
-        <p className="text-gray-600 dark:text-gray-400">View and pay your school fees</p>
-      </div>
-      <div className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-800 p-12 text-center">
-        <p className="text-gray-500 dark:text-gray-400">Payment gateway and fee history</p>
-      </div>
-    </div>
-  );
-}
-
-function ReportCardsPlaceholder() {
-  return (
-    <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl text-gray-900 dark:text-white mb-2">Report Cards</h1>
-        <p className="text-gray-600 dark:text-gray-400">View your academic performance</p>
-      </div>
-      <div className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-800 p-12 text-center">
-        <p className="text-gray-500 dark:text-gray-400">Performance graphs and downloadable report cards</p>
-      </div>
-    </div>
-  );
-}
-
-function MessagesPlaceholder() {
-  return (
-    <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl text-gray-900 dark:text-white mb-2">Messages</h1>
-        <p className="text-gray-600 dark:text-gray-400">Chat with teachers, students, and parents</p>
-      </div>
-      <div className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-800 p-12 text-center">
-        <p className="text-gray-500 dark:text-gray-400">Real-time messaging interface</p>
-      </div>
-    </div>
-  );
-}
-
-function ProfilePlaceholder() {
-  return (
-    <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl text-gray-900 dark:text-white mb-2">Profile Settings</h1>
-        <p className="text-gray-600 dark:text-gray-400">Manage your account information</p>
-      </div>
-      <div className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-800 p-12 text-center">
-        <p className="text-gray-500 dark:text-gray-400">Profile information and settings</p>
-      </div>
     </div>
   );
 }

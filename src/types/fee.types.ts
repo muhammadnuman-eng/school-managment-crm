@@ -80,7 +80,7 @@ export interface GetStudentFeesRequest {
 export interface CreateInvoiceRequest {
   studentId: string;
   feeTypeId: string;
-  amount: number;
+  totalAmount: number; // Backend expects totalAmount, not amount
   issueDate?: string;
   dueDate?: string;
   notes?: string;

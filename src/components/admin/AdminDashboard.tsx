@@ -10,6 +10,7 @@ import { DashboardStatsResponse } from '../../types/dashboard.types';
 import { toast } from 'sonner@2.0.3';
 import { getUserFriendlyError } from '../../utils/errors';
 import { ApiException } from '../../utils/errors';
+import { schoolStorage } from '../../utils/storage';
 
 // Default chart data fallbacks - Only used if API doesn't return data
 // Commented out to force API data usage - uncomment only for fallback

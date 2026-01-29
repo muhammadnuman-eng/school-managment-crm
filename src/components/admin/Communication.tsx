@@ -75,6 +75,7 @@ export function Communication() {
   const [templates, setTemplates] = useState<CommunicationTemplate[]>([]);
   const [summary, setSummary] = useState<CommunicationSummary | null>(null);
   const [recipients, setRecipients] = useState<Recipient[]>([]);
+  const [currentRecipientType, setCurrentRecipientType] = useState<'STUDENT' | 'TEACHER' | 'PARENT' | null>(null);
   const [editingAnnouncement, setEditingAnnouncement] = useState<Announcement | null>(null);
   const [editingTemplate, setEditingTemplate] = useState<CommunicationTemplate | null>(null);
 
@@ -101,7 +102,7 @@ export function Communication() {
       const response = await adminService.getCommunicationSummary();
       setSummary(response);
     } catch (error: any) {
-      console.error('Error fetching communication summary:', error);
+      // Silently handle error - summary is not critical
     }
   }, []);
 
@@ -109,9 +110,28 @@ export function Communication() {
     setIsLoading(true);
     try {
       const response = await adminService.getMessages();
-      setMessages(response.messages || []);
+      const messagesData = response.messages || [];
+
+      // Map API response to Message format - handle nested sender/recipient objects
+      const mappedMessages: Message[] = messagesData.map((msg: any) => ({
+        id: msg.id,
+        schoolId: msg.schoolId,
+        senderId: msg.senderId,
+        senderName: msg.senderName ||
+          (msg.sender ? `${msg.sender.firstName || ''} ${msg.sender.lastName || ''}`.trim() : 'Unknown'),
+        recipientId: msg.recipientId,
+        recipientName: msg.recipientName ||
+          (msg.recipient ? `${msg.recipient.firstName || ''} ${msg.recipient.lastName || ''}`.trim() : 'Unknown'),
+        subject: msg.subject || '',
+        content: msg.content || '',
+        priority: msg.priority || 'MEDIUM',
+        isRead: msg.isRead || msg.readAt !== null,
+        createdAt: msg.createdAt || '',
+        updatedAt: msg.updatedAt || '',
+      }));
+
+      setMessages(mappedMessages);
     } catch (error: any) {
-      console.error('Error fetching messages:', error);
       toast.error('Failed to load messages');
       setMessages([]);
     } finally {
@@ -123,19 +143,27 @@ export function Communication() {
     setIsLoading(true);
     try {
       const response = await adminService.getAnnouncements();
-      console.log('Full API response:', response); // Ab response hi array hai
 
-      // Use response directly (not response.data)
-      const announcementsList = response.map(item => ({
+      // Handle different response structures
+      let announcementsData: any[] = [];
+      if (Array.isArray(response)) {
+        announcementsData = response;
+      } else if (Array.isArray(response.announcements)) {
+        announcementsData = response.announcements;
+      } else if (Array.isArray(response.data)) {
+        announcementsData = response.data;
+      }
+
+      // Map API response to Announcement format
+      const announcementsList = announcementsData.map((item: any) => ({
         ...item,
-        createdByName: `${item.createdByUser?.firstName || ''} ${item.createdByUser?.lastName || ''}`.trim() || 'Admin',
-        views: item.viewsCount || 0,
+        createdByName: `${item.createdByUser?.firstName || ''} ${item.createdByUser?.lastName || ''}`.trim() ||
+          `${item.createdByName || ''}`.trim() || 'Admin',
+        views: item.viewsCount || item.views || 0,
       }));
 
       setAnnouncements(announcementsList);
-      console.log('Announcements set:', announcementsList);
     } catch (error: any) {
-      console.error('Error fetching announcements:', error);
       toast.error(error.message || 'Failed to load announcements');
       setAnnouncements([]);
     } finally {
@@ -149,9 +177,19 @@ export function Communication() {
     setIsLoading(true);
     try {
       const response = await adminService.getTemplates();
-      setTemplates(response.templates || []);
+
+      // Handle different response structures
+      let templatesData: any[] = [];
+      if (Array.isArray(response)) {
+        templatesData = response;
+      } else if (Array.isArray(response.templates)) {
+        templatesData = response.templates;
+      } else if (Array.isArray(response.data)) {
+        templatesData = response.data;
+      }
+
+      setTemplates(templatesData);
     } catch (error: any) {
-      console.error('Error fetching templates:', error);
       toast.error('Failed to load templates');
       setTemplates([]);
     } finally {
@@ -161,12 +199,10 @@ export function Communication() {
 
   // Fetch data on mount and tab change
   useEffect(() => {
-    console.log('Communication useEffect triggered, activeTab:', activeTab);
     fetchSummary();
     if (activeTab === 'messages') {
       fetchMessages();
     } else if (activeTab === 'announcements') {
-      console.log('Calling fetchAnnouncements from useEffect');
       fetchAnnouncements();
     } else if (activeTab === 'templates') {
       fetchTemplates();
@@ -187,12 +223,13 @@ export function Communication() {
 
   const fetchRecipients = async (role: 'STUDENT' | 'TEACHER' | 'PARENT') => {
     try {
+      setCurrentRecipientType(role);
       const response = await adminService.getRecipients({ role });
       setRecipients(response.recipients || []);
     } catch (error: any) {
-      console.error('Error fetching recipients:', error);
       toast.error('Failed to load recipients');
       setRecipients([]);
+      setCurrentRecipientType(null);
     }
   };
 
@@ -213,23 +250,49 @@ export function Communication() {
         return;
       }
 
-      const request: CreateMessageRequest = {
-        schoolId,
-        senderId,
-        recipientId: messageRecipientId,
-        subject: messageSubject || undefined,
-        content: messageContent,
-        priority: messagePriority,
-      };
+      // If "all" is selected, send message to all recipients
+      if (messageRecipientId === 'all') {
+        if (recipients.length === 0) {
+          toast.error('No recipients available');
+          setIsSubmitting(false);
+          return;
+        }
 
-      await adminService.createMessage(request);
-      toast.success('Message sent successfully!');
+        // Send message to each recipient
+        const sendPromises = recipients.map((recipient) => {
+          const request: CreateMessageRequest = {
+            schoolId,
+            senderId,
+            recipientId: recipient.id,
+            subject: messageSubject || undefined,
+            content: messageContent,
+            priority: messagePriority,
+          };
+          return adminService.createMessage(request);
+        });
+
+        await Promise.all(sendPromises);
+        toast.success(`Message sent to all ${recipients.length} ${currentRecipientType === 'STUDENT' ? 'students' : currentRecipientType === 'TEACHER' ? 'teachers' : 'parents'}!`);
+      } else {
+        // Send to single recipient
+        const request: CreateMessageRequest = {
+          schoolId,
+          senderId,
+          recipientId: messageRecipientId,
+          subject: messageSubject || undefined,
+          content: messageContent,
+          priority: messagePriority,
+        };
+
+        await adminService.createMessage(request);
+        toast.success('Message sent successfully!');
+      }
+
       setShowComposeDialog(false);
       resetMessageForm();
       await fetchMessages();
       await fetchSummary();
     } catch (error: any) {
-      console.error('Error sending message:', error);
       let errorMessage = 'Failed to send message';
       if (error instanceof ApiException) {
         errorMessage = getUserFriendlyError(error);
@@ -280,7 +343,6 @@ export function Communication() {
       await fetchAnnouncements();
       await fetchSummary();
     } catch (error: any) {
-      console.error('Error creating announcement:', error);
       let errorMessage = editingAnnouncement ? 'Failed to update announcement' : 'Failed to create announcement';
       if (error instanceof ApiException) {
         errorMessage = getUserFriendlyError(error);
@@ -325,7 +387,6 @@ export function Communication() {
       resetTemplateForm();
       await fetchTemplates();
     } catch (error: any) {
-      console.error('Error creating template:', error);
       let errorMessage = editingTemplate ? 'Failed to update template' : 'Failed to create template';
       if (error instanceof ApiException) {
         errorMessage = getUserFriendlyError(error);
@@ -342,7 +403,6 @@ export function Communication() {
       toast.success('Announcement deleted successfully!');
       await fetchAnnouncements();
     } catch (error: any) {
-      console.error('Error deleting announcement:', error);
       toast.error('Failed to delete announcement');
     }
   };
@@ -353,7 +413,6 @@ export function Communication() {
       toast.success('Template deleted successfully!');
       await fetchTemplates();
     } catch (error: any) {
-      console.error('Error deleting template:', error);
       toast.error('Failed to delete template');
     }
   };
@@ -364,7 +423,6 @@ export function Communication() {
       toast.success('Message deleted successfully!');
       await fetchMessages();
     } catch (error: any) {
-      console.error('Error deleting message:', error);
       toast.error('Failed to delete message');
     }
   };
@@ -375,7 +433,7 @@ export function Communication() {
       await fetchMessages();
       await fetchSummary();
     } catch (error: any) {
-      console.error('Error marking message as read:', error);
+      // Silently handle error
     }
   };
 
@@ -421,22 +479,51 @@ export function Communication() {
   };
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-6 md:space-y-8 px-4 md:px-0">
       {/* Header Section */}
       <div className="relative">
         <div className="absolute inset-0 bg-gradient-to-r from-[#0A66C2]/10 to-purple-500/10 rounded-3xl blur-3xl -z-10"></div>
-        <div className="flex items-center justify-between">
+        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
           <div>
-            <h1 className="text-3xl text-gray-900 dark:text-white mb-2 tracking-tight">Communication Hub</h1>
-            <p className="text-gray-600 dark:text-gray-400 text-lg">Manage messages, announcements, and notifications</p>
+            <h1 className="text-2xl sm:text-3xl text-gray-900 dark:text-white mb-2 tracking-tight">Communication Hub</h1>
+            <p className="text-sm sm:text-base text-gray-600 dark:text-gray-400">Manage messages, announcements, and notifications</p>
           </div>
-          <Button
-            onClick={() => setShowComposeDialog(true)}
-            className="bg-gradient-to-r from-[#0A66C2] to-blue-600 hover:from-[#0052A3] hover:to-blue-700 shadow-lg"
-          >
-            <Send className="w-4 h-4 mr-2" />
-            Compose Message
-          </Button>
+          {activeTab === 'messages' && (
+            <Button
+              onClick={() => setShowComposeDialog(true)}
+              className="bg-gradient-to-r from-[#0A66C2] to-blue-600 hover:from-[#0052A3] hover:to-blue-700 shadow-lg rounded-xl whitespace-nowrap px-4 py-2"
+            >
+              <Send className="w-4 h-4 mr-2 flex-shrink-0" />
+              <span>Compose Message</span>
+            </Button>
+          )}
+          {activeTab === 'announcements' && (
+            <Button
+              onClick={() => setShowAnnouncementDialog(true)}
+              className="bg-gradient-to-r from-purple-500 to-purple-600 hover:from-purple-600 hover:to-purple-700 shadow-lg rounded-xl whitespace-nowrap px-4 py-2"
+            >
+              <Plus className="w-4 h-4 mr-2 flex-shrink-0" />
+              <span>New Announcement</span>
+            </Button>
+          )}
+          {activeTab === 'broadcast' && (
+            <Button
+              onClick={() => setShowBroadcastDialog(true)}
+              className="bg-gradient-to-r from-green-500 to-emerald-600 hover:from-green-600 hover:to-emerald-700 shadow-lg rounded-xl whitespace-nowrap px-4 py-2"
+            >
+              <Send className="w-4 h-4 mr-2 flex-shrink-0" />
+              <span>New Broadcast</span>
+            </Button>
+          )}
+          {activeTab === 'templates' && (
+            <Button
+              onClick={() => setShowTemplateDialog(true)}
+              className="bg-gradient-to-r from-orange-500 to-amber-600 hover:from-orange-600 hover:to-amber-700 shadow-lg rounded-xl whitespace-nowrap px-4 py-2"
+            >
+              <Plus className="w-4 h-4 mr-2 flex-shrink-0" />
+              <span>Create Template</span>
+            </Button>
+          )}
         </div>
       </div>
 
@@ -480,23 +567,23 @@ export function Communication() {
       </div>
 
       {/* Main Content Tabs */}
-      <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
-        <TabsList className="bg-white dark:bg-gray-900 p-1 shadow-lg rounded-xl border border-gray-100 dark:border-gray-800">
-          <TabsTrigger value="messages" className="data-[state=active]:bg-gradient-to-r data-[state=active]:from-[#0A66C2] data-[state=active]:to-blue-600 data-[state=active]:text-white rounded-lg">
-            <MessageSquare className="w-4 h-4 mr-2" />
-            Messages
+      <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4 md:space-y-6">
+        <TabsList className="bg-white dark:bg-gray-900 p-1 shadow-lg rounded-xl border border-gray-100 dark:border-gray-800 w-full overflow-x-auto flex-wrap sm:flex-nowrap">
+          <TabsTrigger value="messages" className="data-[state=active]:bg-gradient-to-r data-[state=active]:from-[#0A66C2] data-[state=active]:to-blue-600 data-[state=active]:text-white rounded-lg flex-1 sm:flex-initial whitespace-nowrap px-3 sm:px-4">
+            <MessageSquare className="w-4 h-4 mr-2 flex-shrink-0" />
+            <span>Messages</span>
           </TabsTrigger>
-          <TabsTrigger value="announcements" className="data-[state=active]:bg-gradient-to-r data-[state=active]:from-purple-500 data-[state=active]:to-purple-600 data-[state=active]:text-white rounded-lg">
-            <Megaphone className="w-4 h-4 mr-2" />
-            Announcements
+          <TabsTrigger value="announcements" className="data-[state=active]:bg-gradient-to-r data-[state=active]:from-purple-500 data-[state=active]:to-purple-600 data-[state=active]:text-white rounded-lg flex-1 sm:flex-initial whitespace-nowrap px-3 sm:px-4">
+            <Megaphone className="w-4 h-4 mr-2 flex-shrink-0" />
+            <span>Announcements</span>
           </TabsTrigger>
-          <TabsTrigger value="broadcast" className="data-[state=active]:bg-gradient-to-r data-[state=active]:from-green-500 data-[state=active]:to-emerald-600 data-[state=active]:text-white rounded-lg">
-            <Users className="w-4 h-4 mr-2" />
-            Broadcast
+          <TabsTrigger value="broadcast" className="data-[state=active]:bg-gradient-to-r data-[state=active]:from-green-500 data-[state=active]:to-emerald-600 data-[state=active]:text-white rounded-lg flex-1 sm:flex-initial whitespace-nowrap px-3 sm:px-4">
+            <Users className="w-4 h-4 mr-2 flex-shrink-0" />
+            <span>Broadcast</span>
           </TabsTrigger>
-          <TabsTrigger value="templates" className="data-[state=active]:bg-gradient-to-r data-[state=active]:from-orange-500 data-[state=active]:to-amber-600 data-[state=active]:text-white rounded-lg">
-            <FileText className="w-4 h-4 mr-2" />
-            Templates
+          <TabsTrigger value="templates" className="data-[state=active]:bg-gradient-to-r data-[state=active]:from-orange-500 data-[state=active]:to-amber-600 data-[state=active]:text-white rounded-lg flex-1 sm:flex-initial whitespace-nowrap px-3 sm:px-4">
+            <FileText className="w-4 h-4 mr-2 flex-shrink-0" />
+            <span>Templates</span>
           </TabsTrigger>
         </TabsList>
 
@@ -506,99 +593,143 @@ export function Communication() {
             <div className="absolute inset-0 bg-gradient-to-br from-gray-100 to-gray-200 dark:from-gray-800 dark:to-gray-900 rounded-3xl transform translate-y-1 opacity-30"></div>
             <div className="absolute inset-0 bg-gradient-to-br from-gray-50 to-gray-100 dark:from-gray-800 dark:to-gray-900 rounded-3xl transform translate-y-0.5 opacity-50"></div>
 
-            <Card className="relative rounded-3xl p-8 border-0 shadow-xl bg-white dark:bg-gray-900">
+            <Card className="relative rounded-3xl p-4 sm:p-6 md:p-8 border-0 shadow-xl bg-white dark:bg-gray-900">
               <div className="absolute inset-0 bg-gradient-to-br from-white/50 to-transparent dark:from-white/5 rounded-3xl pointer-events-none"></div>
               <div className="relative">
-                <div className="flex items-center gap-4 mb-6">
+                <div className="mb-4">
+                  <h3 className="text-lg sm:text-xl text-gray-900 dark:text-white tracking-tight mb-4">All Messages</h3>
+                </div>
+                <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 sm:gap-4 mb-6">
                   <div className="relative flex-1">
                     <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-                    <Input placeholder="Search messages..." className="pl-10 bg-gray-50 dark:bg-gray-800 border-gray-200 dark:border-gray-700 rounded-xl" />
+                    <Input placeholder="Search messages..." className="pl-10 bg-gray-50 dark:bg-gray-800 border-gray-200 dark:border-gray-700 rounded-xl w-full" />
                   </div>
-                  <Button variant="outline" className="gap-2 rounded-xl">
+                  <Button variant="outline" className="gap-2 rounded-xl whitespace-nowrap" size="default">
                     <Filter className="w-4 h-4" />
-                    Filter
+                    <span className="hidden sm:inline">Filter</span>
+                    <span className="sm:hidden">Filter</span>
                   </Button>
                 </div>
 
-                {isLoading ? (
-                  <div className="flex items-center justify-center py-12">
-                    <p className="text-gray-600 dark:text-gray-400">Loading messages...</p>
-                  </div>
-                ) : messages.length === 0 ? (
-                  <div className="flex items-center justify-center py-12">
-                    <p className="text-gray-600 dark:text-gray-400">No messages found</p>
-                  </div>
-                ) : (
-                  <div className="space-y-3">
-                    {messages.map((message) => (
-                      <div
-                        key={message.id}
-                        className="flex items-start gap-4 p-5 rounded-2xl bg-gray-50 dark:bg-gray-800/50 hover:bg-gray-100 dark:hover:bg-gray-800 transition-all duration-200 border border-gray-100 dark:border-gray-800 cursor-pointer group/message"
-                        onClick={() => {
-                          if (!message.isRead) {
-                            handleMarkMessageRead(message.id);
-                          }
-                        }}
-                      >
-                        <Avatar className="w-12 h-12 ring-2 ring-white dark:ring-gray-800 shadow-lg">
-                          <AvatarFallback className="bg-gradient-to-br from-[#0A66C2] to-blue-600 text-white">
-                            {message.senderName?.split(' ').map(n => n[0]).join('').substring(0, 2).toUpperCase() || 'U'}
-                          </AvatarFallback>
-                        </Avatar>
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-start justify-between mb-2">
-                            <div>
-                              <div className="flex items-center gap-2 mb-1">
-                                <h4 className="text-sm text-gray-900 dark:text-white font-medium">
-                                  {message.senderName || 'Unknown'}
-                                </h4>
-                                {!message.isRead && (
-                                  <div className="w-2 h-2 rounded-full bg-[#0A66C2]"></div>
+                <div className="border rounded-2xl overflow-hidden">
+                  <div className="overflow-x-auto">
+                    <Table>
+                      <TableHeader>
+                        <TableRow className="bg-gray-50 dark:bg-gray-800">
+                          <TableHead className="min-w-[150px]">From</TableHead>
+                          <TableHead className="min-w-[120px]">To</TableHead>
+                          <TableHead className="min-w-[180px]">Subject</TableHead>
+                          <TableHead className="min-w-[200px] max-w-[300px]">Content</TableHead>
+                          <TableHead className="min-w-[100px]">Priority</TableHead>
+                          <TableHead className="min-w-[120px]">Date & Time</TableHead>
+                          <TableHead className="min-w-[100px]">Status</TableHead>
+                          <TableHead className="text-right min-w-[80px]">Actions</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {isLoading ? (
+                          <TableRow>
+                            <TableCell colSpan={8} className="text-center py-12 text-gray-600 dark:text-gray-400">
+                              Loading messages...
+                            </TableCell>
+                          </TableRow>
+                        ) : messages.length === 0 ? (
+                          <TableRow>
+                            <TableCell colSpan={8} className="text-center py-12 text-gray-600 dark:text-gray-400">
+                              No messages found
+                            </TableCell>
+                          </TableRow>
+                        ) : (
+                          messages.map((message) => (
+                            <TableRow
+                              key={message.id}
+                              className="hover:bg-gray-50 dark:hover:bg-gray-800 cursor-pointer"
+                              onClick={() => {
+                                if (!message.isRead) {
+                                  handleMarkMessageRead(message.id);
+                                }
+                              }}
+                            >
+                              <TableCell className="min-w-[150px]">
+                                <div className="flex items-center gap-2">
+                                  <Avatar className="w-8 h-8 flex-shrink-0">
+                                    <AvatarFallback className="bg-gradient-to-br from-[#0A66C2] to-blue-600 text-white text-xs">
+                                      {message.senderName?.split(' ').map(n => n[0]).join('').substring(0, 2).toUpperCase() || 'U'}
+                                    </AvatarFallback>
+                                  </Avatar>
+                                  <div className="min-w-0 flex-1">
+                                    <p className="text-sm text-gray-900 dark:text-white font-medium truncate">
+                                      {message.senderName || 'Unknown'}
+                                    </p>
+                                    {!message.isRead && (
+                                      <div className="w-2 h-2 rounded-full bg-[#0A66C2] mt-1"></div>
+                                    )}
+                                  </div>
+                                </div>
+                              </TableCell>
+                              <TableCell className="text-gray-700 dark:text-gray-300 min-w-[120px]">
+                                <p className="text-sm truncate">{message.recipientName || 'Unknown'}</p>
+                              </TableCell>
+                              <TableCell className="min-w-[180px]">
+                                <p className="text-sm text-gray-900 dark:text-white font-medium truncate">
+                                  {message.subject || 'No Subject'}
+                                </p>
+                              </TableCell>
+                              <TableCell className="text-gray-600 dark:text-gray-400 min-w-[200px] max-w-[300px]">
+                                <p className="text-sm line-clamp-2 break-words">
+                                  {message.content && message.content.length > 100
+                                    ? `${message.content.substring(0, 100)}...`
+                                    : (message.content || 'No content')}
+                                </p>
+                              </TableCell>
+                              <TableCell className="min-w-[100px]">
+                                {(message.priority === 'HIGH' || message.priority === 'URGENT') ? (
+                                  <Badge className="bg-red-100 text-red-700 border-red-200 text-xs whitespace-nowrap">
+                                    {message.priority}
+                                  </Badge>
+                                ) : (
+                                  <Badge variant="outline" className="text-xs whitespace-nowrap">
+                                    {message.priority || 'MEDIUM'}
+                                  </Badge>
                                 )}
-                              </div>
-                              <p className="text-sm text-gray-900 dark:text-white font-medium mb-1">
-                                {message.subject || 'No Subject'}
-                              </p>
-                              <p className="text-sm text-gray-600 dark:text-gray-400 line-clamp-1">
-                                {message.content.substring(0, 100)}...
-                              </p>
-                            </div>
-                            {message.priority === 'HIGH' || message.priority === 'URGENT' && (
-                              <Badge className="bg-red-100 text-red-700 border-red-200 text-xs">
-                                {message.priority} Priority
-                              </Badge>
-                            )}
-                          </div>
-                          <div className="flex items-center gap-4 text-xs text-gray-500 dark:text-gray-400">
-                            <div className="flex items-center gap-1">
-                              <Calendar className="w-3 h-3" />
-                              {formatDateOnly(message.createdAt || '')}
-                            </div>
-                            {message.isRead && (
-                              <div className="flex items-center gap-1 text-green-600">
-                                <CheckCheck className="w-3 h-3" />
-                                Read
-                              </div>
-                            )}
-                            <DropdownMenu>
-                              <DropdownMenuTrigger asChild onClick={(e) => e.stopPropagation()}>
-                                <Button variant="ghost" size="sm" className="h-6 px-2">
-                                  <MoreVertical className="w-3 h-3" />
-                                </Button>
-                              </DropdownMenuTrigger>
-                              <DropdownMenuContent align="end">
-                                <DropdownMenuItem onClick={() => handleDeleteMessage(message.id)}>
-                                  <Trash2 className="w-4 h-4 mr-2" />
-                                  Delete
-                                </DropdownMenuItem>
-                              </DropdownMenuContent>
-                            </DropdownMenu>
-                          </div>
-                        </div>
-                      </div>
-                    ))}
+                              </TableCell>
+                              <TableCell className="text-gray-700 dark:text-gray-300 min-w-[120px] whitespace-nowrap">
+                                <span className="text-sm">{formatDateOnly(message.createdAt || '')}</span>
+                              </TableCell>
+                              <TableCell className="min-w-[100px]">
+                                {message.isRead ? (
+                                  <Badge variant="outline" className="bg-green-100 text-green-700 border-green-200 whitespace-nowrap">
+                                    <CheckCheck className="w-3 h-3 mr-1 inline" />
+                                    Read
+                                  </Badge>
+                                ) : (
+                                  <Badge variant="outline" className="bg-blue-100 text-blue-700 border-blue-200 whitespace-nowrap">
+                                    Unread
+                                  </Badge>
+                                )}
+                              </TableCell>
+                              <TableCell className="text-right min-w-[80px]">
+                                <DropdownMenu>
+                                  <DropdownMenuTrigger asChild onClick={(e) => e.stopPropagation()}>
+                                    <Button variant="ghost" size="icon" className="h-8 w-8">
+                                      <MoreVertical className="w-4 h-4" />
+                                    </Button>
+                                  </DropdownMenuTrigger>
+                                  <DropdownMenuContent align="end">
+                                    <DropdownMenuItem onClick={() => handleDeleteMessage(message.id)}>
+                                      <Trash2 className="w-4 h-4 mr-2" />
+                                      Delete
+                                    </DropdownMenuItem>
+                                  </DropdownMenuContent>
+                                </DropdownMenu>
+                              </TableCell>
+                            </TableRow>
+                          ))
+                        )}
+                      </TableBody>
+                    </Table>
                   </div>
-                )}
+                </div>
               </div>
             </Card>
           </div>
@@ -610,125 +741,120 @@ export function Communication() {
             <div className="absolute inset-0 bg-gradient-to-br from-gray-100 to-gray-200 dark:from-gray-800 dark:to-gray-900 rounded-3xl transform translate-y-1 opacity-30"></div>
             <div className="absolute inset-0 bg-gradient-to-br from-gray-50 to-gray-100 dark:from-gray-800 dark:to-gray-900 rounded-3xl transform translate-y-0.5 opacity-50"></div>
 
-            <Card className="relative rounded-3xl p-8 border-0 shadow-xl bg-white dark:bg-gray-900">
+            <Card className="relative rounded-3xl p-4 sm:p-6 md:p-8 border-0 shadow-xl bg-white dark:bg-gray-900">
               <div className="absolute inset-0 bg-gradient-to-br from-white/50 to-transparent dark:from-white/5 rounded-3xl pointer-events-none"></div>
               <div className="relative">
-                <div className="flex items-center justify-between mb-6">
-                  <h3 className="text-xl text-gray-900 dark:text-white tracking-tight">All Announcements</h3>
-                  <Button
-                    onClick={() => setShowAnnouncementDialog(true)}
-                    className="bg-gradient-to-r from-purple-500 to-purple-600 hover:from-purple-600 hover:to-purple-700 shadow-lg rounded-xl"
-                  >
-                    <Plus className="w-4 h-4 mr-2" />
-                    New Announcement
-                  </Button>
+                <div className="mb-6">
+                  <h3 className="text-lg sm:text-xl text-gray-900 dark:text-white tracking-tight">All Announcements</h3>
                 </div>
 
                 <div className="border rounded-2xl overflow-hidden">
-                  <Table>
-                    <TableHeader>
-                      <TableRow className="bg-gray-50 dark:bg-gray-800">
-                        <TableHead>Title</TableHead>
-                        <TableHead>Category</TableHead>
-                        <TableHead>Target Audience</TableHead>
-                        <TableHead>Posted By</TableHead>
-                        <TableHead>Date & Time</TableHead>
-                        <TableHead>Views</TableHead>
-                        <TableHead>Status</TableHead>
-                        <TableHead className="text-right">Actions</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {isLoading ? (
-                        <TableRow>
-                          <TableCell colSpan={8} className="text-center py-12 text-gray-500 dark:text-gray-400">
-                            Loading announcements...
-                          </TableCell>
+                  <div className="overflow-x-auto">
+                    <Table>
+                      <TableHeader>
+                        <TableRow className="bg-gray-50 dark:bg-gray-800">
+                          <TableHead className="min-w-[200px]">Title</TableHead>
+                          <TableHead className="min-w-[120px]">Category</TableHead>
+                          <TableHead className="min-w-[140px]">Target Audience</TableHead>
+                          <TableHead className="min-w-[120px]">Posted By</TableHead>
+                          <TableHead className="min-w-[120px]">Date & Time</TableHead>
+                          <TableHead className="min-w-[80px]">Views</TableHead>
+                          <TableHead className="min-w-[100px]">Status</TableHead>
+                          <TableHead className="text-right min-w-[80px]">Actions</TableHead>
                         </TableRow>
-                      ) : announcements.length === 0 ? (
-                        <TableRow>
-                          <TableCell colSpan={8} className="text-center py-12 text-gray-500 dark:text-gray-400">
-                            No announcements found
-                          </TableCell>
-                        </TableRow>
-                      ) : (
-                        announcements.map((announcement) => (
-                          <TableRow key={announcement.id} className="hover:bg-gray-50 dark:hover:bg-gray-800">
-                            <TableCell>
-                              <div>
-                                <p className="text-sm text-gray-900 dark:text-white font-medium mb-1">
-                                  {announcement.title}
-                                </p>
-                                <p className="text-xs text-gray-500 dark:text-gray-400 line-clamp-1">
-                                  {announcement.content}
-                                </p>
-                              </div>
-                            </TableCell>
-                            <TableCell>
-                              <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-200">
-                                {announcement.category}
-                              </Badge>
-                            </TableCell>
-                            <TableCell className="text-gray-700 dark:text-gray-300">
-                              {announcement.targetAudience}
-                            </TableCell>
-                            <TableCell className="text-gray-700 dark:text-gray-300">
-                              {announcement.createdByName || 'Admin'}
-                            </TableCell>
-                            <TableCell>
-                              <div className="text-sm text-gray-700 dark:text-gray-300">
-                                {formatDateOnly(announcement.createdAt || '')}
-                              </div>
-                            </TableCell>
-                            <TableCell>
-                              <div className="flex items-center gap-1 text-gray-700 dark:text-gray-300">
-                                <Eye className="w-4 h-4" />
-                                {announcement.views || 0}
-                              </div>
-                            </TableCell>
-                            <TableCell>
-                              <Badge
-                                variant="outline"
-                                className="bg-green-100 text-green-700 border-green-200"
-                              >
-                                Published
-                              </Badge>
-                            </TableCell>
-                            <TableCell className="text-right">
-                              <DropdownMenu>
-                                <DropdownMenuTrigger asChild>
-                                  <Button variant="ghost" size="icon">
-                                    <MoreVertical className="w-4 h-4" />
-                                  </Button>
-                                </DropdownMenuTrigger>
-                                <DropdownMenuContent align="end">
-                                  <DropdownMenuItem onClick={() => {
-                                    setEditingAnnouncement(announcement);
-                                    setAnnouncementTitle(announcement.title);
-                                    setAnnouncementContent(announcement.content);
-                                    setAnnouncementCategory(announcement.category);
-                                    setAnnouncementPriority(announcement.priority || 'MEDIUM');
-                                    setAnnouncementTargetAudience(announcement.targetAudience);
-                                    setShowAnnouncementDialog(true);
-                                  }}>
-                                    <Edit className="w-4 h-4 mr-2" />
-                                    Edit
-                                  </DropdownMenuItem>
-                                  <DropdownMenuItem
-                                    className="text-red-600"
-                                    onClick={() => handleDeleteAnnouncement(announcement.id)}
-                                  >
-                                    <Trash2 className="w-4 h-4 mr-2" />
-                                    Delete
-                                  </DropdownMenuItem>
-                                </DropdownMenuContent>
-                              </DropdownMenu>
+                      </TableHeader>
+                      <TableBody>
+                        {isLoading ? (
+                          <TableRow>
+                            <TableCell colSpan={8} className="text-center py-12 text-gray-500 dark:text-gray-400">
+                              Loading announcements...
                             </TableCell>
                           </TableRow>
-                        ))
-                      )}
-                    </TableBody>
-                  </Table>
+                        ) : announcements.length === 0 ? (
+                          <TableRow>
+                            <TableCell colSpan={8} className="text-center py-12 text-gray-500 dark:text-gray-400">
+                              No announcements found
+                            </TableCell>
+                          </TableRow>
+                        ) : (
+                          announcements.map((announcement) => (
+                            <TableRow key={announcement.id} className="hover:bg-gray-50 dark:hover:bg-gray-800">
+                              <TableCell className="min-w-[200px]">
+                                <div>
+                                  <p className="text-sm text-gray-900 dark:text-white font-medium mb-1 truncate">
+                                    {announcement.title}
+                                  </p>
+                                  <p className="text-xs text-gray-500 dark:text-gray-400 line-clamp-1 break-words">
+                                    {announcement.content}
+                                  </p>
+                                </div>
+                              </TableCell>
+                              <TableCell className="min-w-[120px]">
+                                <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-200 whitespace-nowrap">
+                                  {announcement.category}
+                                </Badge>
+                              </TableCell>
+                              <TableCell className="text-gray-700 dark:text-gray-300 min-w-[140px]">
+                                <span className="text-sm truncate block">{announcement.targetAudience}</span>
+                              </TableCell>
+                              <TableCell className="text-gray-700 dark:text-gray-300 min-w-[120px]">
+                                <span className="text-sm truncate block">{announcement.createdByName || 'Admin'}</span>
+                              </TableCell>
+                              <TableCell className="min-w-[120px] whitespace-nowrap">
+                                <div className="text-sm text-gray-700 dark:text-gray-300">
+                                  {formatDateOnly(announcement.createdAt || '')}
+                                </div>
+                              </TableCell>
+                              <TableCell className="min-w-[80px]">
+                                <div className="flex items-center gap-1 text-gray-700 dark:text-gray-300">
+                                  <Eye className="w-4 h-4 flex-shrink-0" />
+                                  <span className="text-sm">{announcement.views || 0}</span>
+                                </div>
+                              </TableCell>
+                              <TableCell className="min-w-[100px]">
+                                <Badge
+                                  variant="outline"
+                                  className="bg-green-100 text-green-700 border-green-200 whitespace-nowrap"
+                                >
+                                  Published
+                                </Badge>
+                              </TableCell>
+                              <TableCell className="text-right min-w-[80px]">
+                                <DropdownMenu>
+                                  <DropdownMenuTrigger asChild>
+                                    <Button variant="ghost" size="icon" className="h-8 w-8">
+                                      <MoreVertical className="w-4 h-4" />
+                                    </Button>
+                                  </DropdownMenuTrigger>
+                                  <DropdownMenuContent align="end">
+                                    <DropdownMenuItem onClick={() => {
+                                      setEditingAnnouncement(announcement);
+                                      setAnnouncementTitle(announcement.title);
+                                      setAnnouncementContent(announcement.content);
+                                      setAnnouncementCategory(announcement.category);
+                                      setAnnouncementPriority(announcement.priority || 'MEDIUM');
+                                      setAnnouncementTargetAudience(announcement.targetAudience);
+                                      setShowAnnouncementDialog(true);
+                                    }}>
+                                      <Edit className="w-4 h-4 mr-2" />
+                                      Edit
+                                    </DropdownMenuItem>
+                                    <DropdownMenuItem
+                                      className="text-red-600"
+                                      onClick={() => handleDeleteAnnouncement(announcement.id)}
+                                    >
+                                      <Trash2 className="w-4 h-4 mr-2" />
+                                      Delete
+                                    </DropdownMenuItem>
+                                  </DropdownMenuContent>
+                                </DropdownMenu>
+                              </TableCell>
+                            </TableRow>
+                          ))
+                        )}
+                      </TableBody>
+                    </Table>
+                  </div>
                 </div>
               </div>
             </Card>
@@ -741,42 +867,37 @@ export function Communication() {
             <div className="absolute inset-0 bg-gradient-to-br from-gray-100 to-gray-200 dark:from-gray-800 dark:to-gray-900 rounded-3xl transform translate-y-1 opacity-30"></div>
             <div className="absolute inset-0 bg-gradient-to-br from-gray-50 to-gray-100 dark:from-gray-800 dark:to-gray-900 rounded-3xl transform translate-y-0.5 opacity-50"></div>
 
-            <Card className="relative rounded-3xl p-8 border-0 shadow-xl bg-white dark:bg-gray-900">
+            <Card className="relative rounded-3xl p-4 sm:p-6 md:p-8 border-0 shadow-xl bg-white dark:bg-gray-900">
               <div className="absolute inset-0 bg-gradient-to-br from-white/50 to-transparent dark:from-white/5 rounded-3xl pointer-events-none"></div>
               <div className="relative">
-                <div className="flex items-center justify-between mb-6">
-                  <h3 className="text-xl text-gray-900 dark:text-white tracking-tight">Broadcast History</h3>
-                  <Button
-                    onClick={() => setShowBroadcastDialog(true)}
-                    className="bg-gradient-to-r from-green-500 to-emerald-600 hover:from-green-600 hover:to-emerald-700 shadow-lg rounded-xl"
-                  >
-                    <Send className="w-4 h-4 mr-2" />
-                    New Broadcast
-                  </Button>
+                <div className="mb-6">
+                  <h3 className="text-lg sm:text-xl text-gray-900 dark:text-white tracking-tight">Broadcast History</h3>
                 </div>
 
                 <div className="border rounded-2xl overflow-hidden">
-                  <Table>
-                    <TableHeader>
-                      <TableRow className="bg-gray-50 dark:bg-gray-800">
-                        <TableHead>Title</TableHead>
-                        <TableHead>Recipients</TableHead>
-                        <TableHead>Channel</TableHead>
-                        <TableHead>Sent Date & Time</TableHead>
-                        <TableHead>Delivered</TableHead>
-                        <TableHead>Created By</TableHead>
-                        <TableHead>Status</TableHead>
-                        <TableHead className="text-right">Actions</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      <TableRow>
-                        <TableCell colSpan={8} className="text-center py-12 text-gray-500 dark:text-gray-400">
-                          Bulk messaging feature coming soon. Use individual messages or announcements for now.
-                        </TableCell>
-                      </TableRow>
-                    </TableBody>
-                  </Table>
+                  <div className="overflow-x-auto">
+                    <Table>
+                      <TableHeader>
+                        <TableRow className="bg-gray-50 dark:bg-gray-800">
+                          <TableHead className="min-w-[200px]">Title</TableHead>
+                          <TableHead className="min-w-[120px]">Recipients</TableHead>
+                          <TableHead className="min-w-[120px]">Channel</TableHead>
+                          <TableHead className="min-w-[140px]">Sent Date & Time</TableHead>
+                          <TableHead className="min-w-[100px]">Delivered</TableHead>
+                          <TableHead className="min-w-[120px]">Created By</TableHead>
+                          <TableHead className="min-w-[100px]">Status</TableHead>
+                          <TableHead className="text-right min-w-[80px]">Actions</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        <TableRow>
+                          <TableCell colSpan={8} className="text-center py-12 text-gray-500 dark:text-gray-400">
+                            Bulk messaging feature coming soon. Use individual messages or announcements for now.
+                          </TableCell>
+                        </TableRow>
+                      </TableBody>
+                    </Table>
+                  </div>
                 </div>
               </div>
             </Card>
@@ -789,82 +910,105 @@ export function Communication() {
             <div className="absolute inset-0 bg-gradient-to-br from-gray-100 to-gray-200 dark:from-gray-800 dark:to-gray-900 rounded-3xl transform translate-y-1 opacity-30"></div>
             <div className="absolute inset-0 bg-gradient-to-br from-gray-50 to-gray-100 dark:from-gray-800 dark:to-gray-900 rounded-3xl transform translate-y-0.5 opacity-50"></div>
 
-            <Card className="relative rounded-3xl p-8 border-0 shadow-xl bg-white dark:bg-gray-900">
+            <Card className="relative rounded-3xl p-4 sm:p-6 md:p-8 border-0 shadow-xl bg-white dark:bg-gray-900">
               <div className="absolute inset-0 bg-gradient-to-br from-white/50 to-transparent dark:from-white/5 rounded-3xl pointer-events-none"></div>
               <div className="relative">
-                <div className="flex items-center justify-between mb-6">
-                  <h3 className="text-xl text-gray-900 dark:text-white tracking-tight">Message Templates</h3>
-                  <Button
-                    onClick={() => setShowTemplateDialog(true)}
-                    className="bg-gradient-to-r from-orange-500 to-amber-600 hover:from-orange-600 hover:to-amber-700 shadow-lg rounded-xl"
-                  >
-                    <Plus className="w-4 h-4 mr-2" />
-                    Create Template
-                  </Button>
+                <div className="mb-6">
+                  <h3 className="text-lg sm:text-xl text-gray-900 dark:text-white tracking-tight">Message Templates</h3>
                 </div>
 
-                {isLoading ? (
-                  <div className="flex items-center justify-center py-12">
-                    <p className="text-gray-600 dark:text-gray-400">Loading templates...</p>
+                <div className="border rounded-2xl overflow-hidden">
+                  <div className="overflow-x-auto">
+                    <Table>
+                      <TableHeader>
+                        <TableRow className="bg-gray-50 dark:bg-gray-800">
+                          <TableHead className="min-w-[200px]">Template Name</TableHead>
+                          <TableHead className="min-w-[120px]">Type</TableHead>
+                          <TableHead className="min-w-[180px]">Subject</TableHead>
+                          <TableHead className="min-w-[250px] max-w-[400px]">Content</TableHead>
+                          <TableHead className="min-w-[120px]">Created Date</TableHead>
+                          <TableHead className="text-right min-w-[80px]">Actions</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {isLoading ? (
+                          <TableRow>
+                            <TableCell colSpan={6} className="text-center py-12 text-gray-500 dark:text-gray-400">
+                              Loading templates...
+                            </TableCell>
+                          </TableRow>
+                        ) : templates.length === 0 ? (
+                          <TableRow>
+                            <TableCell colSpan={6} className="text-center py-12 text-gray-500 dark:text-gray-400">
+                              No templates found
+                            </TableCell>
+                          </TableRow>
+                        ) : (
+                          templates.map((template) => (
+                            <TableRow
+                              key={template.id}
+                              className="hover:bg-gray-50 dark:hover:bg-gray-800"
+                            >
+                              <TableCell className="min-w-[200px]">
+                                <p className="text-sm text-gray-900 dark:text-white font-medium">
+                                  {template.templateName}
+                                </p>
+                              </TableCell>
+                              <TableCell className="min-w-[120px]">
+                                <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-200 whitespace-nowrap">
+                                  {template.templateType}
+                                </Badge>
+                              </TableCell>
+                              <TableCell className="min-w-[180px]">
+                                <p className="text-sm text-gray-900 dark:text-white truncate">
+                                  {template.subject || 'No Subject'}
+                                </p>
+                              </TableCell>
+                              <TableCell className="min-w-[250px] max-w-[400px]">
+                                <p className="text-sm text-gray-600 dark:text-gray-400 line-clamp-2 break-words">
+                                  {template.content && template.content.length > 150
+                                    ? `${template.content.substring(0, 150)}...`
+                                    : (template.content || 'No content')}
+                                </p>
+                              </TableCell>
+                              <TableCell className="min-w-[120px] whitespace-nowrap">
+                                <span className="text-sm text-gray-700 dark:text-gray-300">
+                                  {formatDateOnly(template.createdAt || '')}
+                                </span>
+                              </TableCell>
+                              <TableCell className="text-right min-w-[80px]">
+                                <DropdownMenu>
+                                  <DropdownMenuTrigger asChild>
+                                    <Button variant="ghost" size="icon" className="h-8 w-8">
+                                      <MoreVertical className="w-4 h-4" />
+                                    </Button>
+                                  </DropdownMenuTrigger>
+                                  <DropdownMenuContent align="end">
+                                    <DropdownMenuItem onClick={() => {
+                                      setEditingTemplate(template);
+                                      setTemplateName(template.templateName);
+                                      setTemplateType(template.templateType);
+                                      setTemplateSubject(template.subject || '');
+                                      setTemplateContent(template.content);
+                                      setShowTemplateDialog(true);
+                                    }}>
+                                      <Edit className="w-4 h-4 mr-2" />
+                                      Edit
+                                    </DropdownMenuItem>
+                                    <DropdownMenuItem className="text-red-600" onClick={() => handleDeleteTemplate(template.id)}>
+                                      <Trash2 className="w-4 h-4 mr-2" />
+                                      Delete
+                                    </DropdownMenuItem>
+                                  </DropdownMenuContent>
+                                </DropdownMenu>
+                              </TableCell>
+                            </TableRow>
+                          ))
+                        )}
+                      </TableBody>
+                    </Table>
                   </div>
-                ) : templates.length === 0 ? (
-                  <div className="flex items-center justify-center py-12">
-                    <p className="text-gray-600 dark:text-gray-400">No templates found</p>
-                  </div>
-                ) : (
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                    {templates.map((template) => (
-                      <div
-                        key={template.id}
-                        className="p-6 rounded-2xl bg-gray-50 dark:bg-gray-800/50 hover:bg-gray-100 dark:hover:bg-gray-800 transition-all duration-200 border border-gray-100 dark:border-gray-800"
-                      >
-                        <div className="flex items-start justify-between mb-4">
-                          <div>
-                            <h4 className="text-gray-900 dark:text-white font-medium mb-1">
-                              {template.templateName}
-                            </h4>
-                            <div className="flex items-center gap-2">
-                              <Badge variant="outline" className="text-xs">
-                                {template.templateType}
-                              </Badge>
-                            </div>
-                          </div>
-                          <DropdownMenu>
-                            <DropdownMenuTrigger asChild>
-                              <Button variant="ghost" size="icon">
-                                <MoreVertical className="w-4 h-4" />
-                              </Button>
-                            </DropdownMenuTrigger>
-                            <DropdownMenuContent align="end">
-                              <DropdownMenuItem onClick={() => {
-                                setEditingTemplate(template);
-                                setTemplateName(template.templateName);
-                                setTemplateType(template.templateType);
-                                setTemplateSubject(template.subject || '');
-                                setTemplateContent(template.content);
-                                setShowTemplateDialog(true);
-                              }}>
-                                <Edit className="w-4 h-4 mr-2" />
-                                Edit
-                              </DropdownMenuItem>
-                              <DropdownMenuItem className="text-red-600" onClick={() => handleDeleteTemplate(template.id)}>
-                                <Trash2 className="w-4 h-4 mr-2" />
-                                Delete
-                              </DropdownMenuItem>
-                            </DropdownMenuContent>
-                          </DropdownMenu>
-                        </div>
-                        <p className="text-sm text-gray-600 dark:text-gray-400 mb-4 line-clamp-3">
-                          {template.content}
-                        </p>
-                        <div className="flex items-center justify-between text-xs text-gray-500 dark:text-gray-400">
-                          <span>Template</span>
-                          <span>Created: {formatDateOnly(template.createdAt || '')}</span>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
+                </div>
               </div>
             </Card>
           </div>
@@ -887,6 +1031,7 @@ export function Communication() {
                     onValueChange={(role) => {
                       setMessageRecipientId(''); // Reset selected recipient
                       setRecipients([]); // Clear recipients list
+                      setCurrentRecipientType(null);
                       if (role && role !== 'all') {
                         fetchRecipients(role as 'STUDENT' | 'TEACHER' | 'PARENT');
                       }
@@ -907,23 +1052,32 @@ export function Communication() {
                   <Label>Select Recipient</Label>
                   <div className="relative">
                     <Select
-                      value={messageRecipientId}
-                      onValueChange={setMessageRecipientId}
+                      value={messageRecipientId || ''}
+                      onValueChange={(value) => {
+                        setMessageRecipientId(value);
+                      }}
                     >
                       <SelectTrigger className="pr-10">
                         <SelectValue placeholder="Choose recipient" />
                       </SelectTrigger>
                       <SelectContent>
+                        {recipients.length > 0 && (
+                          <SelectItem value="all">
+                            All {recipients[0]?.role === 'STUDENT' ? 'Students' : recipients[0]?.role === 'TEACHER' ? 'Teachers' : 'Parents'}
+                          </SelectItem>
+                        )}
                         {recipients.length === 0 ? (
                           <div className="py-6 text-center text-sm text-gray-500">
                             {isLoading ? 'Loading recipients...' : 'No recipients available'}
                           </div>
                         ) : (
-                          recipients.map((recipient) => (
-                            <SelectItem key={recipient.id} value={recipient.id}>
+                          recipients.map((recipient, i) => {
+                            console.log(recipient);
+                            return (<SelectItem key={i} value={String(recipient.userId)}>
                               {recipient.name}
                             </SelectItem>
-                          ))
+                            )
+                          })
                         )}
                       </SelectContent>
                     </Select>
@@ -969,7 +1123,7 @@ export function Communication() {
               </div>
               <div className="space-y-2">
                 <Label htmlFor="priority">Priority</Label>
-                <Select value={messagePriority} onValueChange={(val) => setMessagePriority(val as any)}>
+                <Select value={messagePriority} onValueChange={(val) => setMessagePriority(val as 'LOW' | 'MEDIUM' | 'HIGH' | 'URGENT')}>
                   <SelectTrigger>
                     <SelectValue placeholder="Select priority" />
                   </SelectTrigger>

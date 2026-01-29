@@ -59,26 +59,75 @@ const normalizeTeacher = (t: any): Teacher => {
   }
 
   // Prioritize firstName/lastName from backend, fallback to name field
-  const firstName = t?.firstName || '';
-  const lastName = t?.lastName || '';
+  const firstName = t?.firstName || t?.user?.firstName || '';
+  const lastName = t?.lastName || t?.user?.lastName || '';
   const fullName = firstName && lastName 
     ? `${firstName} ${lastName}`.trim()
-    : (t?.name || 'Unnamed Teacher');
+    : (t?.name || t?.user?.name || 'Unnamed Teacher');
   
+  // Handle experience - backend returns experienceYears (number), convert to string
+  let experience = '';
+  if (t?.experience !== undefined && t?.experience !== null) {
+    experience = String(t.experience);
+  } else if (t?.experienceYears !== undefined && t?.experienceYears !== null) {
+    experience = String(t.experienceYears);
+  }
+
+  // Handle subject - backend returns subjects array, get primary or first subject
+  let subject = '';
+  if (t?.subject) {
+    subject = String(t.subject);
+  } else if (Array.isArray(t?.subjects) && t.subjects.length > 0) {
+    // Find primary subject first
+    const primarySubject = t.subjects.find((s: any) => s.isPrimary === true);
+    if (primarySubject) {
+      subject = String(primarySubject.subjectId || primarySubject.subject || '');
+    } else {
+      // Use first subject
+      subject = String(t.subjects[0].subjectId || t.subjects[0].subject || '');
+    }
+  }
+
+  // Handle status - backend returns employmentStatus, map to status
+  let status: 'Active' | 'Inactive' = 'Active';
+  if (t?.status) {
+    status = t.status === 'ACTIVE' || t.status === 'Active' ? 'Active' : 'Inactive';
+  } else if (t?.employmentStatus) {
+    status = t.employmentStatus === 'ACTIVE' || t.employmentStatus === 'Active' ? 'Active' : 'Inactive';
+  } else if (t?.user?.status) {
+    status = t.user.status === 'ACTIVE' || t.user.status === 'Active' ? 'Active' : 'Inactive';
+  }
+
+  // Handle email - check user object
+  const email = t?.email || t?.user?.email || '';
+
+  // Handle phone - check user object
+  const phone = t?.phone || t?.user?.phone || '';
+
+  // Handle joiningDate - convert Date to string if needed
+  let joiningDate = '';
+  if (t?.joiningDate) {
+    if (typeof t.joiningDate === 'string') {
+      joiningDate = t.joiningDate;
+    } else if (t.joiningDate instanceof Date) {
+      joiningDate = t.joiningDate.toISOString().split('T')[0];
+    }
+  }
+
   const normalized = {
     id: t?.id?.toString?.() || t?.uuid?.toString?.() || `${Date.now()}`,
     name: fullName,
     employeeId: t?.employeeId || '',
-    subject: t?.subject || '',
+    subject: subject,
     qualification: t?.qualification || '',
-    experience: t?.experience || '',
-    email: t?.email || '',
-    phone: t?.phone || '',
-    classes: typeof t?.classes === 'number' ? t.classes : 0,
+    experience: experience,
+    email: email,
+    phone: phone,
+    classes: typeof t?.classes === 'number' ? t.classes : (typeof t?._count?.assignments === 'number' ? t._count.assignments : 0),
     performance: typeof t?.performance === 'number' ? t.performance : 0,
-    status: (t?.status as Teacher['status']) || 'Active',
+    status: status,
     specialization: t?.specialization || '',
-    joiningDate: t?.joiningDate || '',
+    joiningDate: joiningDate,
     address: t?.address || '',
   };
 
@@ -89,12 +138,16 @@ const normalizeTeacher = (t: any): Teacher => {
         raw: t,
         normalized: normalized,
         fields: {
-          firstName: t?.firstName,
-          lastName: t?.lastName,
+          firstName: t?.firstName || t?.user?.firstName,
+          lastName: t?.lastName || t?.user?.lastName,
           name: t?.name,
-          subject: t?.subject,
-          experience: t?.experience,
+          subject: subject,
+          experience: experience,
+          experienceYears: t?.experienceYears,
           employeeId: t?.employeeId,
+          email: email,
+          phone: phone,
+          subjects: t?.subjects,
         },
       });
     }
@@ -433,15 +486,59 @@ export function Teachers() {
         setLastName(nameParts.slice(1).join(' ') || '');
       }
       
-      setEmployeeId(freshTeacher.employeeId);
-      setSelectedSubject(freshTeacher.subject);
+      setEmployeeId(freshTeacher.employeeId || '');
+      setSelectedSubject(freshTeacher.subject || '');
       setQualification(freshTeacher.qualification || '');
       setSpecialization(freshTeacher.specialization || '');
       setExperience(freshTeacher.experience || '');
-      setEmail(freshTeacher.email);
-      setPhone(freshTeacher.phone);
-      setJoiningDate(freshTeacher.joiningDate || '');
+      setEmail(freshTeacher.email || '');
+      setPhone(freshTeacher.phone || '');
+      
+      // Handle joining date format - convert to YYYY-MM-DD if needed
+      let joiningDateValue = '';
+      if (response.data?.joiningDate) {
+        if (typeof response.data.joiningDate === 'string') {
+          if (response.data.joiningDate.includes('T')) {
+            joiningDateValue = response.data.joiningDate.split('T')[0];
+          } else if (response.data.joiningDate.match(/^\d{4}-\d{2}-\d{2}$/)) {
+            joiningDateValue = response.data.joiningDate;
+          } else {
+            const date = new Date(response.data.joiningDate);
+            if (!isNaN(date.getTime())) {
+              joiningDateValue = date.toISOString().split('T')[0];
+            }
+          }
+        } else if (response.data.joiningDate instanceof Date) {
+          joiningDateValue = response.data.joiningDate.toISOString().split('T')[0];
+        }
+      } else if (freshTeacher.joiningDate) {
+        if (typeof freshTeacher.joiningDate === 'string') {
+          if (freshTeacher.joiningDate.includes('T')) {
+            joiningDateValue = freshTeacher.joiningDate.split('T')[0];
+          } else {
+            joiningDateValue = freshTeacher.joiningDate;
+          }
+        }
+      }
+      setJoiningDate(joiningDateValue);
+      
       setAddress(freshTeacher.address || '');
+
+      if (import.meta.env.DEV) {
+        console.log('Edit Teacher - Populated Fields:', {
+          firstName: response.data?.firstName || freshTeacher.name.split(' ')[0],
+          lastName: response.data?.lastName || freshTeacher.name.split(' ').slice(1).join(' '),
+          employeeId: freshTeacher.employeeId,
+          subject: freshTeacher.subject,
+          qualification: freshTeacher.qualification,
+          specialization: freshTeacher.specialization,
+          experience: freshTeacher.experience,
+          email: freshTeacher.email,
+          phone: freshTeacher.phone,
+          joiningDate: joiningDateValue,
+          address: freshTeacher.address,
+        });
+      }
       
       setShowAddDialog(true);
     } catch (error: any) {
@@ -450,15 +547,49 @@ export function Teachers() {
       setFirstName(nameParts[0] || '');
       setLastName(nameParts.slice(1).join(' ') || '');
       
-      setEmployeeId(teacher.employeeId);
-      setSelectedSubject(teacher.subject);
+      setEmployeeId(teacher.employeeId || '');
+      setSelectedSubject(teacher.subject || '');
       setQualification(teacher.qualification || '');
       setSpecialization(teacher.specialization || '');
       setExperience(teacher.experience || '');
-      setEmail(teacher.email);
-      setPhone(teacher.phone);
-      setJoiningDate(teacher.joiningDate || '');
+      setEmail(teacher.email || '');
+      setPhone(teacher.phone || '');
+      
+      // Handle joining date format - convert to YYYY-MM-DD if needed
+      let joiningDateValue = '';
+      if (teacher.joiningDate) {
+        if (typeof teacher.joiningDate === 'string') {
+          if (teacher.joiningDate.includes('T')) {
+            joiningDateValue = teacher.joiningDate.split('T')[0];
+          } else if (teacher.joiningDate.match(/^\d{4}-\d{2}-\d{2}$/)) {
+            joiningDateValue = teacher.joiningDate;
+          } else {
+            const date = new Date(teacher.joiningDate);
+            if (!isNaN(date.getTime())) {
+              joiningDateValue = date.toISOString().split('T')[0];
+            }
+          }
+        }
+      }
+      setJoiningDate(joiningDateValue);
+      
       setAddress(teacher.address || '');
+
+      if (import.meta.env.DEV) {
+        console.log('Edit Teacher (Fallback) - Populated Fields:', {
+          firstName,
+          lastName,
+          employeeId: teacher.employeeId,
+          subject: teacher.subject,
+          qualification: teacher.qualification,
+          specialization: teacher.specialization,
+          experience: teacher.experience,
+          email: teacher.email,
+          phone: teacher.phone,
+          joiningDate: joiningDateValue,
+          address: teacher.address,
+        });
+      }
       
       setShowAddDialog(true);
       
@@ -832,10 +963,18 @@ export function Teachers() {
                           </TableCell>
                           <TableCell className="text-gray-700 dark:text-gray-300">{teacher.employeeId}</TableCell>
                           <TableCell>
-                            <Badge variant="outline">{teacher.subject}</Badge>
+                            {teacher.subject ? (
+                              <Badge variant="outline">{teacher.subject}</Badge>
+                            ) : (
+                              <span className="text-gray-400 dark:text-gray-500 text-sm">Not assigned</span>
+                            )}
                           </TableCell>
-                          <TableCell className="text-gray-700 dark:text-gray-300">{teacher.qualification}</TableCell>
-                          <TableCell className="text-gray-700 dark:text-gray-300">{teacher.experience}</TableCell>
+                          <TableCell className="text-gray-700 dark:text-gray-300">
+                            {teacher.qualification || <span className="text-gray-400 dark:text-gray-500">-</span>}
+                          </TableCell>
+                          <TableCell className="text-gray-700 dark:text-gray-300">
+                            {teacher.experience ? `${teacher.experience}${teacher.experience.includes('years') ? '' : ' years'}` : <span className="text-gray-400 dark:text-gray-500">-</span>}
+                          </TableCell>
                           <TableCell className="text-gray-700 dark:text-gray-300">{teacher.classes}</TableCell>
                           <TableCell>
                             <div className="flex items-center gap-2">
@@ -1125,19 +1264,31 @@ export function Teachers() {
               <div className="grid grid-cols-2 gap-6">
                 <div>
                   <h4 className="text-sm text-gray-500 dark:text-gray-400 mb-1">Email</h4>
-                  <p className="text-gray-900 dark:text-white">{selectedTeacher.email}</p>
+                  <p className="text-gray-900 dark:text-white">{selectedTeacher.email || 'Not provided'}</p>
                 </div>
                 <div>
                   <h4 className="text-sm text-gray-500 dark:text-gray-400 mb-1">Phone</h4>
-                  <p className="text-gray-900 dark:text-white">{selectedTeacher.phone}</p>
+                  <p className="text-gray-900 dark:text-white">{selectedTeacher.phone || 'Not provided'}</p>
                 </div>
                 <div>
                   <h4 className="text-sm text-gray-500 dark:text-gray-400 mb-1">Qualification</h4>
-                  <p className="text-gray-900 dark:text-white">{selectedTeacher.qualification}</p>
+                  <p className="text-gray-900 dark:text-white">{selectedTeacher.qualification || 'Not provided'}</p>
+                </div>
+                <div>
+                  <h4 className="text-sm text-gray-500 dark:text-gray-400 mb-1">Specialization</h4>
+                  <p className="text-gray-900 dark:text-white">{selectedTeacher.specialization || 'Not provided'}</p>
                 </div>
                 <div>
                   <h4 className="text-sm text-gray-500 dark:text-gray-400 mb-1">Experience</h4>
-                  <p className="text-gray-900 dark:text-white">{selectedTeacher.experience}</p>
+                  <p className="text-gray-900 dark:text-white">{selectedTeacher.experience ? `${selectedTeacher.experience} years` : 'Not provided'}</p>
+                </div>
+                <div>
+                  <h4 className="text-sm text-gray-500 dark:text-gray-400 mb-1">Joining Date</h4>
+                  <p className="text-gray-900 dark:text-white">
+                    {selectedTeacher.joiningDate 
+                      ? new Date(selectedTeacher.joiningDate).toLocaleDateString() 
+                      : 'Not provided'}
+                  </p>
                 </div>
                 <div>
                   <h4 className="text-sm text-gray-500 dark:text-gray-400 mb-1">Performance</h4>
@@ -1146,6 +1297,10 @@ export function Teachers() {
                 <div>
                   <h4 className="text-sm text-gray-500 dark:text-gray-400 mb-1">Classes</h4>
                   <p className="text-gray-900 dark:text-white">{selectedTeacher.classes}</p>
+                </div>
+                <div className="col-span-2">
+                  <h4 className="text-sm text-gray-500 dark:text-gray-400 mb-1">Address</h4>
+                  <p className="text-gray-900 dark:text-white">{selectedTeacher.address || 'Not provided'}</p>
                 </div>
               </div>
 
@@ -1159,7 +1314,9 @@ export function Teachers() {
                   <p className="text-sm text-gray-600 dark:text-gray-400">Performance</p>
                 </Card>
                 <Card className="p-4 text-center">
-                  <p className="text-2xl text-gray-900 dark:text-white mb-1">{selectedTeacher.experience}</p>
+                  <p className="text-2xl text-gray-900 dark:text-white mb-1">
+                    {selectedTeacher.experience ? `${selectedTeacher.experience}${selectedTeacher.experience.includes('years') ? '' : ' years'}` : 'N/A'}
+                  </p>
                   <p className="text-sm text-gray-600 dark:text-gray-400">Experience</p>
                 </Card>
               </div>

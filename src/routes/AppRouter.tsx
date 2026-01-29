@@ -1,29 +1,20 @@
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
-import { LoginPage } from '../components/auth/LoginPage';
-import { AdminRegisterPage } from '../components/auth/AdminRegisterPage';
-import { SchoolLoginPage } from '../components/auth/SchoolLoginPage';
-import { CreateSchoolPage } from '../components/auth/CreateSchoolPage';
-import { VerifyOTPPage } from '../components/auth/VerifyOTPPage';
+import { BrowserRouter, Routes, Route } from 'react-router-dom';
 import App from '../App';
 
 export function AppRouter() {
   return (
     <BrowserRouter>
       <Routes>
-        {/* Public Routes */}
-        <Route path="/admin/login" element={<LoginPage />} />
-        <Route path="/admin/register" element={<AdminRegisterPage />} />
-        <Route path="/admin/verify-otp" element={<VerifyOTPPage />} />
-        <Route path="/admin/school-login" element={<SchoolLoginPage />} />
-        <Route path="/admin/create-school" element={<CreateSchoolPage />} />
-        
-        {/* Protected Routes - redirect to login if not authenticated */}
-        <Route path="/admin/school/:schoolId/dashboard" element={<App />} />
+        {/* Let App component handle all routes including portal selection, login flows, and dashboard */}
+        <Route path="/" element={<App />} />
+        <Route path="/admin/login" element={<App />} />
+        <Route path="/admin/register" element={<App />} />
+        <Route path="/admin/verify-otp" element={<App />} />
+        <Route path="/admin/school-login" element={<App />} />
+        <Route path="/admin/login-success" element={<App />} />
+        <Route path="/admin/create-school" element={<App />} />
         <Route path="/admin/school/:schoolId/*" element={<App />} />
-        
-        {/* Default redirect */}
-        <Route path="/" element={<Navigate to="/admin/login" replace />} />
-        <Route path="*" element={<Navigate to="/admin/login" replace />} />
+        <Route path="*" element={<App />} />
       </Routes>
     </BrowserRouter>
   );

@@ -42,6 +42,7 @@ export function Examinations() {
   const [currentView, setCurrentView] = useState<ExamView>('dashboard');
   const [selectedExam, setSelectedExam] = useState<Exam | null>(null);
   const [showCreateDialog, setShowCreateDialog] = useState(false);
+  const [refreshKey, setRefreshKey] = useState(0);
 
   const handleViewChange = (view: ExamView, exam?: Exam) => {
     setCurrentView(view);
@@ -57,6 +58,8 @@ export function Examinations() {
   const handleExamCreated = () => {
     setShowCreateDialog(false);
     setCurrentView('dashboard');
+    // Trigger refresh of dashboard data
+    setRefreshKey(prev => prev + 1);
   };
 
   const renderView = () => {
@@ -64,6 +67,7 @@ export function Examinations() {
       case 'dashboard':
         return (
           <ExaminationDashboard 
+            key={refreshKey}
             onCreateExam={handleCreateExam}
             onViewExam={(exam) => handleViewChange('details', exam)}
             onViewList={() => handleViewChange('list')}
@@ -132,6 +136,7 @@ export function Examinations() {
       default:
         return (
           <ExaminationDashboard 
+            key={refreshKey}
             onCreateExam={handleCreateExam}
             onViewExam={(exam) => handleViewChange('details', exam)}
             onViewList={() => handleViewChange('list')}
